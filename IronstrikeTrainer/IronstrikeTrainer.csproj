@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>IronstrikeTrainer</AssemblyName>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Interop assemblies are reference-only; never copy them to output. -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <NoWarn>$(NoWarn);CS0649;CS0169</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Unity.IL2CPP" Version="6.0.0-be.788" />
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.1.0" />
+  </ItemGroup>
+
+  <!--
+    InteropDir points at BepInEx/interop. Default is the locally generated set
+    (Cpp2IL + Il2CppInterop.CLI against the same game build). Override with
+    -p:InteropDir=/mnt/ironstrike/BepInEx/interop to build against the real
+    runtime-generated assemblies from the Windows install.
+  -->
+  <PropertyGroup Condition="'$(InteropDir)' == ''">
+    <InteropDir>$(LocalInteropDir)</InteropDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- GameAssembly.dll holds the game's own gameplay types (GM, NetworkLifecycle, Fighter...) -->
+    <Reference Include="$(InteropDir)/GameAssembly.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(InteropDir)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(InteropDir)/UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Il2Cppmscorlib.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="CheckInterop" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(InteropDir)/GameAssembly.dll')"
+           Text="Interop assemblies not found at '$(InteropDir)'. Pass -p:InteropDir=&lt;path to BepInEx/interop&gt;." />
+  </Target>
+
+</Project>
