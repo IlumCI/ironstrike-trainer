@@ -2,224 +2,144 @@ using System;
 using HarmonyLib;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Assets.Scripts.Utilities;
+using UnityEngine;
 
 namespace IronstrikeTrainer;
 
-/// <summary>
-/// Harmony hooks on GM, the game's god-object (global namespace, in GameAssembly.dll).
-///
-/// Both targets are Unity message methods invoked from native code, so they cannot be inlined
-/// away -- which makes them safe hook points under IL2CPP.
-/// </summary>
+// GM.InitScene and GM.Update are Unity messages called from native code, so IL2CPP can't inline
+// them away. That makes them the safe hook points here.
 [HarmonyPatch]
 internal static class GmHooks
 {
-    private static bool _loggedInitScene;
-    private static bool _loggedUpdate;
-    private static bool _legacyInputDead;
-    private static bool _menuInjected;
-
-    // ---------------------------------------------------------------- InitScene
+    static bool sawInit, sawUpdate, inputDead, menuGrafted;
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GM), nameof(GM.InitScene))]
-    private static void InitScene_Postfix()
+    static void InitScene()
     {
-        if (!_loggedInitScene)
-        {
-            _loggedInitScene = true;
-            Plugin.Log.LogInfo("HOOK CONFIRMED: GM.InitScene postfix fired.");
-        }
-
-        _menuInjected = false;   // dev menu is rebuilt per scene
+        if (!sawInit) { sawInit = true; Plugin.Log.LogInfo("HOOK CONFIRMED: GM.InitScene fired."); }
+        menuGrafted = false;   // dev menu is rebuilt per scene
         Apply("InitScene");
     }
 
-    // ------------------------------------------------------------------- Update
-
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GM), nameof(GM.Update))]
-    private static void Update_Postfix()
+    static void Update()
     {
-        if (!_loggedUpdate)
-        {
-            _loggedUpdate = true;
-            Plugin.Log.LogInfo("HOOK CONFIRMED: GM.Update postfix fired.");
-        }
-
+        if (!sawUpdate) { sawUpdate = true; Plugin.Log.LogInfo("HOOK CONFIRMED: GM.Update fired."); }
         if (!Plugin.C.Enabled.Value) return;
 
-        // Cheap per-frame work only: VR runs at 72-120 Hz and allocation here causes judder.
-        Cheats.Patches.EnforceGodMode();
-
-        if (Plugin.C.EnableHotkeys.Value && !_legacyInputDead) PollHotkeys();
+        // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
+        Cheats.Patches.PinGodMode();
+        if (Plugin.C.EnableHotkeys.Value && !inputDead) Hotkeys();
     }
 
-    // -------------------------------------------------------------------- state
-
-    /// <summary>
-    /// Solo test. NetworkIsRunning() is NOT a solo test -- solo play still starts a Fusion Host
-    /// session (GM.LoadAsyncSceneByIndex passes GameMode.Host). Player count is.
-    /// </summary>
+    // NetworkIsRunning() is not a solo test: solo play still starts a Fusion Host session, since
+    // GM.LoadAsyncSceneByIndex passes GameMode.Host. Player count is the real check.
     internal static bool IsSolo()
     {
         try
         {
             var nl = GM.instance?.NetLifecycle;
-            if (nl == null) return true;              // menus, loading
-            if (!nl.NetworkIsRunning()) return true;  // network down: definitely alone
-            return nl.SpawnedPlayerCount <= 1;
+            if (nl == null) return true;
+            return !nl.NetworkIsRunning() || nl.SpawnedPlayerCount <= 1;
         }
         catch (Exception e)
         {
-            Plugin.Log.LogWarning($"IsSolo() failed, assuming NOT solo: {e.Message}");
-            return false;                             // fail closed
+            Plugin.Log.LogWarning($"solo check failed, assuming not solo: {e.Message}");
+            return false;
         }
     }
 
-    // -------------------------------------------------------------------- apply
-
-    internal static void Apply(string reason)
+    internal static void Apply(string why)
     {
         if (!Plugin.C.Enabled.Value) return;
+        if (!Plugin.Allowed()) { Plugin.Log.LogInfo($"skipped {why}: not solo"); return; }
 
-        if (!Plugin.Allowed())
-        {
-            Plugin.Log.LogInfo($"Apply({reason}) skipped: other players present and SoloOnly is on.");
-            return;
-        }
+        var c = Plugin.C;
+        GM.CheatHighDamage           = c.HighDamage.Value;
+        GM.CheatFastRegen            = c.FastRegen.Value;
+        GM.CheatLowCooldowns         = c.LowCooldowns.Value;
+        GM.CheatAllIronstrikes       = c.AllIronstrikes.Value;
+        GM.CheatDontSpawnIronstrikes = c.DontSpawnIronstrikes.Value;
+        GM.CheatNoHealthbars         = c.NoHealthbars.Value;
+        GM.CheatNoDamageNumbers      = c.NoDamageNumbers.Value;
+        GM.CheatNoStatusEffecs       = c.NoStatusEffects.Value;
 
-        try
-        {
-            var c = Plugin.C;
+        var gm = GM.instance;
+        if (gm != null && c.UnlockDevMenu.Value) gm.AllowDebugMenu = true;
 
-            GM.CheatHighDamage           = c.HighDamage.Value;
-            GM.CheatFastRegen            = c.FastRegen.Value;
-            GM.CheatLowCooldowns         = c.LowCooldowns.Value;
-            GM.CheatAllIronstrikes       = c.AllIronstrikes.Value;
-            GM.CheatDontSpawnIronstrikes = c.DontSpawnIronstrikes.Value;
-            GM.CheatNoHealthbars         = c.NoHealthbars.Value;
-            GM.CheatNoDamageNumbers      = c.NoDamageNumbers.Value;
-            GM.CheatNoStatusEffecs       = c.NoStatusEffects.Value;
-
-            var gm = GM.instance;
-            if (gm != null && c.UnlockDevMenu.Value) gm.AllowDebugMenu = true;
-
-            Cheats.ApplyWeaponTweaks();
-
-            Plugin.Log.LogInfo($"Applied ({reason}).");
-        }
-        catch (Exception e)
-        {
-            Plugin.Log.LogError($"Apply({reason}) failed: {e}");
-        }
+        Cheats.ApplyWeaponTweaks();
+        Plugin.Log.LogInfo($"applied ({why})");
     }
 
-    // ------------------------------------------------------------------ hotkeys
-
-    private static void PollHotkeys()
+    static void Hotkeys()
     {
         try
         {
-            if (Key(UnityEngine.KeyCode.F1)) ToggleDevMenu();
-            else if (Key(UnityEngine.KeyCode.F2)) Apply("F2");
-            else if (Key(UnityEngine.KeyCode.F3)) ReviveLocal();
-            else if (Key(UnityEngine.KeyCode.F4)) Bots(hurt: true);
-            else if (Key(UnityEngine.KeyCode.F5)) Bots(hurt: false);
-        }
-        catch (InvalidOperationException)
-        {
-            _legacyInputDead = true;
-            Plugin.Log.LogWarning(
-                "Legacy UnityEngine.Input is unavailable (Input System only build). Hotkeys off. " +
-                "Open the dev menu with the in-game VR controller binding; the Trainer submenu " +
-                "is inside it, so nothing is lost.");
+            if (Down(KeyCode.F1)) ToggleDevMenu();
+            else if (Down(KeyCode.F2)) Apply("F2");
+            else if (Down(KeyCode.F3)) Revive();
+            else if (Down(KeyCode.F4)) Bots(true);
+            else if (Down(KeyCode.F5)) Bots(false);
         }
         catch (Exception e)
         {
-            _legacyInputDead = true;
-            Plugin.Log.LogError($"Hotkey polling disabled after error: {e}");
+            inputDead = true;
+            Plugin.Log.LogWarning(
+                $"hotkeys off ({e.GetType().Name}). Everything is in the VR dev menu anyway.");
         }
     }
 
-    private static bool Key(UnityEngine.KeyCode k) => UnityEngine.Input.GetKeyDown(k);
+    static bool Down(KeyCode k) => Input.GetKeyDown(k);
 
-    // ------------------------------------------------------------------- verbs
-
-    /// <summary>
-    /// Open the dev menu with our Trainer submenu grafted on. MenuItem.children is a fixed-size
-    /// Il2Cpp array, so appending means rebuilding it one element longer.
-    /// </summary>
     internal static void ToggleDevMenu()
     {
-        if (!Plugin.Allowed()) { Plugin.Log.LogInfo("Dev menu blocked: not solo."); return; }
+        if (!Plugin.Allowed()) { Plugin.Log.LogInfo("dev menu blocked: not solo"); return; }
 
-        try
+        var gm = GM.instance;
+        var dm = gm?.ILDevMenuManager;
+        if (dm == null) { Plugin.Log.LogWarning("no ILDevMenuManager yet"); return; }
+
+        gm.AllowDebugMenu = true;
+
+        if (!menuGrafted || dm.rootMenuItem == null)
         {
-            var gm = GM.instance;
-            if (gm == null) { Plugin.Log.LogWarning("GM.instance is null."); return; }
+            var root = gm.CreateDevMenu();
+            if (root == null) { Plugin.Log.LogWarning("CreateDevMenu returned null"); return; }
 
-            gm.AllowDebugMenu = true;
-
-            var dm = gm.ILDevMenuManager;
-            if (dm == null) { Plugin.Log.LogWarning("GM.instance.ILDevMenuManager is null."); return; }
-
-            if (!_menuInjected || dm.rootMenuItem == null)
-            {
-                var root = gm.CreateDevMenu();
-                if (root == null) { Plugin.Log.LogWarning("CreateDevMenu() returned null."); return; }
-
-                var trainer = TrainerMenu.Build();
-                root.children = Append(root.children, trainer);
-
-                dm.Init(root);
-                _menuInjected = true;
-                Plugin.Log.LogInfo("Dev menu initialised with Trainer submenu grafted on.");
-            }
-
-            dm.Toggle();
-            Plugin.Log.LogInfo($"Dev menu toggled -> enabled={dm.Enabled()}");
+            root.children = Append(root.children, TrainerMenu.Build());
+            dm.Init(root);
+            menuGrafted = true;
         }
-        catch (Exception e)
-        {
-            Plugin.Log.LogError($"ToggleDevMenu failed: {e}");
-        }
+
+        dm.Toggle();
     }
 
-    private static Il2CppReferenceArray<MenuItem> Append(
-        Il2CppReferenceArray<MenuItem> existing, MenuItem extra)
+    // MenuItem.children is a fixed-size Il2Cpp array, so appending means rebuilding it.
+    static Il2CppReferenceArray<MenuItem> Append(Il2CppReferenceArray<MenuItem> src, MenuItem extra)
     {
-        int n = existing?.Length ?? 0;
+        int n = src?.Length ?? 0;
         var grown = new Il2CppReferenceArray<MenuItem>(n + 1);
-        for (int i = 0; i < n; i++) grown[i] = existing[i];
+        for (int i = 0; i < n; i++) grown[i] = src[i];
         grown[n] = extra;
         return grown;
     }
 
-    internal static void ReviveLocal()
+    internal static void Revive()
     {
         if (!Plugin.Allowed()) return;
-        try
-        {
-            var gm = GM.instance;
-            var f = gm?.LocalPlayerFighter;
-            if (f == null) { Plugin.Log.LogInfo("No LocalPlayerFighter to revive."); return; }
-            gm.RevivePlayerFighter(f);
-            Plugin.Log.LogInfo("RevivePlayerFighter(local) called.");
-        }
-        catch (Exception e) { Plugin.Log.LogError($"Revive failed: {e}"); }
+        var gm = GM.instance;
+        var f = gm?.LocalPlayerFighter;
+        if (f != null) gm.RevivePlayerFighter(f);
     }
 
     internal static void Bots(bool hurt)
     {
         if (!Plugin.Allowed()) return;
-        try
-        {
-            var gm = GM.instance;
-            if (gm == null) return;
-            if (hurt) { gm.HurtAllBots();    Plugin.Log.LogInfo("HurtAllBots() called."); }
-            else      { gm.DespawnAllBots(); Plugin.Log.LogInfo("DespawnAllBots() called."); }
-        }
-        catch (Exception e) { Plugin.Log.LogError($"Bots(hurt={hurt}) failed: {e}"); }
+        var gm = GM.instance;
+        if (gm == null) return;
+        if (hurt) gm.HurtAllBots();
+        else gm.DespawnAllBots();
     }
 }

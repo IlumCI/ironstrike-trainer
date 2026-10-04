@@ -1,81 +1,50 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
+using UnityEngine;
 
 namespace IronstrikeTrainer;
 
-/// <summary>
-/// Mutable trainer state plus the Harmony patches that enforce it.
-///
-/// Most value cheats route through one hook: <c>Fighter.CalcSkillAndStatusEffectValue</c>, the
-/// game's single central stat query. Every stat the skill/status system can modify passes through
-/// it keyed by <see cref="SkillCalcType"/>, so one postfix covers move speed, jump, weakspot range,
-/// visibility, spell damage and dash in one place.
-/// </summary>
+// Most value cheats ride one hook: Fighter.CalcSkillAndStatusEffectValue, which every
+// skill/status-modifiable stat passes through keyed by SkillCalcType.
 internal static class Cheats
 {
-    // ---- toggles -----------------------------------------------------------
-    public static bool GodMode;
-    public static bool InstaKill;
-    public static bool Invisible;
+    public static bool GodMode, InstaKill, Invisible;
+    public static bool TeamKillEnemies, TeamKillPlayers;
 
-    /// <summary>Friendly fire among enemy bots (EnemyBots vs EnemyBots).</summary>
-    public static bool TeamKillEnemies;
+    public static float MoveSpeed = 1f, JumpHeight = 1f, MeleeReach = 1f;
+    public static float IronstrikeRate = 1f, ProjectileSpeed = 1f, ProjectileRange = 1f;
 
-    /// <summary>Friendly fire on the player side (LocalPlayer/Allies vs each other).</summary>
-    public static bool TeamKillPlayers;
-
-    // ---- multipliers (1.0 == vanilla) -------------------------------------
-    public static float MoveSpeed = 1f;
-    public static float JumpHeight = 1f;
-    public static float MeleeReach = 1f;
-    public static float IronstrikeRate = 1f;   // higher = weakspots appear more often
-    public static float ProjectileSpeed = 1f;
-    public static float ProjectileRange = 1f;
-
-    /// <summary>Step lists the menu cycles through. First entry is always vanilla.</summary>
     public static readonly float[] Steps = { 1f, 1.25f, 1.5f, 2f, 3f, 5f, 10f };
 
-    public static float NextStep(float current)
+    public static float NextStep(float cur)
     {
         for (int i = 0; i < Steps.Length; i++)
-            if (Math.Abs(Steps[i] - current) < 0.001f)
-                return Steps[(i + 1) % Steps.Length];
+            if (Mathf.Abs(Steps[i] - cur) < 0.001f) return Steps[(i + 1) % Steps.Length];
         return Steps[0];
     }
 
     internal static Fighter Local => GM.instance?.LocalPlayerFighter;
 
-    private static bool IsPlayerSide(Faction f) => f == Faction.LocalPlayer || f == Faction.Allies;
+    static bool IsLocal(Fighter f) => f != null && Local != null && f.Pointer == Local.Pointer;
+    static bool PlayerSide(Faction f) => f == Faction.LocalPlayer || f == Faction.Allies;
+    static bool Off(float f) => Mathf.Abs(f - 1f) < 0.001f;
 
-    private static bool IsLocal(Fighter f) =>
-        f != null && Local != null && f.Pointer == Local.Pointer;
-
-    /// <summary>
-    /// Scale a stat the game returns from the skill/status pipeline.
-    ///
-    /// We cannot read method bodies out of an IL2CPP build, so whether the game treats these as
-    /// multipliers or as additive bonus-percentages is unverified. Multiplying alone would be a
-    /// no-op whenever no skill contributes a base value (result 0), so we also floor the result at
-    /// (factor - 1). That makes the knob bite under either interpretation. Tune the step list if a
-    /// given stat turns out to be far too strong or too weak in practice.
-    /// </summary>
-    private static float Scale(float value, float factor)
+    // IL2CPP strips method bodies, so whether the game reads these stats as multipliers or as
+    // additive bonus-percent is unknowable from the binary. Multiply, but floor at (factor-1) so
+    // the knob still bites when no skill contributes a base value. Retune Steps if a stat lands
+    // way off.
+    static float Scale(float v, float factor)
     {
-        if (Math.Abs(factor - 1f) < 0.001f) return value;
-        float scaled = value * factor;
-        float additive = factor - 1f;
-        return scaled > additive ? scaled : additive;
+        if (Off(factor)) return v;
+        return Mathf.Max(v * factor, factor - 1f);
     }
-
-    // ======================================================================
-    //  Patches
-    // ======================================================================
 
     [HarmonyPatch]
     internal static class Patches
     {
-        /// <summary>God mode. Pinned every frame because the game clears it on respawn/scene load.</summary>
-        internal static void EnforceGodMode()
+        // Cleared on respawn and scene load, so it gets pinned from GM.Update.
+        internal static void PinGodMode()
         {
             if (!GodMode) return;
             try
@@ -83,166 +52,119 @@ internal static class Cheats
                 var f = Local;
                 if (f != null) f.invulnerable = true;
             }
-            catch { /* fighter not spawned yet */ }
+            catch (Exception) { }   // fighter despawned mid-frame
         }
 
-        /// <summary>The central stat hook — move speed, jump, weakspot range, invisibility.</summary>
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Fighter), nameof(Fighter.CalcSkillAndStatusEffectValue))]
-        private static void CalcValue_Postfix(Fighter __instance, SkillCalcType type, ref float __result)
+        static void StatValue(Fighter __instance, SkillCalcType type, ref float __result)
         {
-            if (!Plugin.Allowed()) return;
-            if (!IsLocal(__instance)) return;
+            if (!Plugin.Allowed() || !IsLocal(__instance)) return;
 
             switch (type)
             {
                 case SkillCalcType.MoveSpeed:
-                    __result = Scale(__result, MoveSpeed);
-                    break;
+                    __result = Scale(__result, MoveSpeed); break;
                 case SkillCalcType.JumpVelocity:
                 case SkillCalcType.JumpHorizontal:
-                    __result = Scale(__result, JumpHeight);
-                    break;
+                    __result = Scale(__result, JumpHeight); break;
                 case SkillCalcType.WeakspotRange:
-                    __result = Scale(__result, IronstrikeRate);
-                    break;
+                    __result = Scale(__result, IronstrikeRate); break;
                 case SkillCalcType.VisibilityPercent:
                     if (Invisible) __result = 0f;
                     break;
             }
         }
 
-        /// <summary>
-        /// Invisibility proper: the AI asks whether a fighter is targetable. Saying no is the same
-        /// lever Smoke Bombs and the Invisibility spell pull.
-        /// </summary>
+        // Same lever Smoke Bombs and the Invisibility spell pull.
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Fighter), nameof(Fighter.CalcSkillAndStatusEffectFlag))]
-        private static void CalcFlag_Postfix(Fighter __instance, SkillFlagType type, ref bool __result)
+        static void StatFlag(Fighter __instance, SkillFlagType type, ref bool __result)
         {
-            if (!Plugin.Allowed()) return;
-            if (!Invisible) return;
-            if (type != SkillFlagType.Targetable) return;
-            if (!IsLocal(__instance)) return;
+            if (!Invisible || type != SkillFlagType.Targetable) return;
+            if (!Plugin.Allowed() || !IsLocal(__instance)) return;
             __result = false;
         }
 
-        /// <summary>Insta-kill, but only for damage we deal. Never amplifies incoming damage.</summary>
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Fighter), nameof(Fighter.CalculateDamage))]
-        private static void CalculateDamage_Postfix(HitInfo hitInfo, ref float __result)
+        static void Damage(HitInfo hitInfo, ref float __result)
         {
-            if (!Plugin.Allowed()) return;
-            if (!InstaKill || hitInfo == null) return;
-            try
-            {
-                if (!IsLocal(hitInfo.attackingFighter)) return;   // our hits only
-                if (IsLocal(hitInfo.hitFighter)) return;          // never ourselves
-                __result = 999999f;
-            }
-            catch { }
+            if (!InstaKill || hitInfo == null || !Plugin.Allowed()) return;
+            if (!IsLocal(hitInfo.attackingFighter)) return;   // our hits only
+            if (IsLocal(hitInfo.hitFighter)) return;          // never ourselves
+            __result = 999999f;
         }
 
-        /// <summary>
-        /// Friendly fire. GM.isSameTeam is the game's single team check, so denying it for a
-        /// faction pair makes hits between those fighters register as real damage -- which is
-        /// exactly "enemy swings/projectiles that land on other enemies now count".
-        ///
-        /// Note this is the same predicate the AI consults for targeting, so enemies will also
-        /// start deliberately fighting each other rather than merely hurting each other by
-        /// accident. That is usually the fun version; if you want accidental-only, this would
-        /// need to move down into the per-hit path instead.
-        /// </summary>
+        // isSameTeam is also what the AI consults to pick targets, so enemies will actively fight
+        // each other rather than only clipping each other by accident.
         [HarmonyPostfix]
         [HarmonyPatch(typeof(GM), nameof(GM.isSameTeam))]
-        private static void IsSameTeam_Postfix(Faction f1, Faction f2, ref bool __result)
+        static void SameTeam(Faction f1, Faction f2, ref bool __result)
         {
-            if (!Plugin.Allowed()) return;
-            if (!__result) return;                       // already enemies, nothing to do
+            if (!__result || !Plugin.Allowed()) return;
             if (f1 == Faction.Uninitialized || f2 == Faction.Uninitialized) return;
 
             if (TeamKillEnemies && f1 == Faction.EnemyBots && f2 == Faction.EnemyBots)
-            {
                 __result = false;
-                return;
-            }
-
-            if (TeamKillPlayers && IsPlayerSide(f1) && IsPlayerSide(f2))
+            else if (TeamKillPlayers && PlayerSide(f1) && PlayerSide(f2))
                 __result = false;
         }
 
-        // -- projectiles: tune on spawn, when the owner is known ------------
-
-        private static void TuneProjectile(Projectile p, Fighter parent)
+        static void Tune(Projectile p, Fighter parent)
         {
-            if (!Plugin.Allowed() || p == null) return;
-            if (!IsLocal(parent)) return;
-            try
-            {
-                if (Math.Abs(ProjectileSpeed - 1f) > 0.001f)
-                    p.speed *= ProjectileSpeed;
+            if (p == null || !Plugin.Allowed() || !IsLocal(parent)) return;
 
-                if (Math.Abs(ProjectileRange - 1f) > 0.001f)
-                {
-                    // Range is bounded by flight time and by how fast the arc drops.
-                    p.maxLifeTime *= ProjectileRange;
-                    p.gravity /= ProjectileRange;
-                }
+            if (!Off(ProjectileSpeed)) p.speed *= ProjectileSpeed;
+            if (!Off(ProjectileRange))
+            {
+                p.maxLifeTime *= ProjectileRange;   // range is bounded by flight time
+                p.gravity /= ProjectileRange;       // ...and by how fast the arc drops
             }
-            catch { }
         }
 
         [HarmonyPostfix]
-        [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes), new Type[] { typeof(Fighter) })]
-        private static void SetTypes_Postfix(Projectile __instance, Fighter parent)
-            => TuneProjectile(__instance, parent);
+        [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes), new[] { typeof(Fighter) })]
+        static void Spawned(Projectile __instance, Fighter parent) => Tune(__instance, parent);
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes),
-                      new Type[] { typeof(Fighter), typeof(SpellType) })]
-        private static void SetTypesSpell_Postfix(Projectile __instance, Fighter parent)
-            => TuneProjectile(__instance, parent);
+                      new[] { typeof(Fighter), typeof(SpellType) })]
+        static void SpawnedSpell(Projectile __instance, Fighter parent) => Tune(__instance, parent);
     }
 
-    // ======================================================================
-    //  Direct pokes (no patch needed)
-    // ======================================================================
+    // Reach and ironstrike cadence live on the equipped Weapon, so they are re-applied on gear
+    // change instead of patched. WeakspotBaseInterval is the dev's own cadence field: smaller
+    // interval means weakspots show up more often.
+    static readonly Dictionary<IntPtr, float> baseInterval = new();
+    static readonly Dictionary<IntPtr, Vector3> baseScale = new();
 
-    /// <summary>
-    /// Melee reach and ironstrike frequency live on the equipped Weapon, so they are re-applied
-    /// whenever gear changes rather than patched. <c>WeakspotBaseInterval</c> is the dev's own
-    /// ironstrike cadence field: smaller interval means weakspots appear more often.
-    /// </summary>
     public static void ApplyWeaponTweaks()
     {
-        var f = Local;
-        if (f == null) return;
-
-        ApplyToWeapon(f.MainWeapon);
-        ApplyToWeapon(f.OffWeapon);
-    }
-
-    private static readonly System.Collections.Generic.Dictionary<IntPtr, float> _baseInterval = new();
-    private static readonly System.Collections.Generic.Dictionary<IntPtr, UnityEngine.Vector3> _baseScale = new();
-
-    private static void ApplyToWeapon(Weapon w)
-    {
-        if (w == null) return;
         try
         {
-            var key = w.Pointer;
-
-            // Remember vanilla values once, so toggling back to 1.0x restores exactly.
-            if (!_baseInterval.ContainsKey(key)) _baseInterval[key] = w.WeakspotBaseInterval;
-            w.WeakspotBaseInterval = _baseInterval[key] / Math.Max(IronstrikeRate, 0.01f);
-
-            var t = w.transform;
-            if (t != null)
-            {
-                if (!_baseScale.ContainsKey(key)) _baseScale[key] = t.localScale;
-                t.localScale = _baseScale[key] * MeleeReach;
-            }
+            var f = Local;
+            if (f == null) return;
+            Apply(f.MainWeapon);
+            Apply(f.OffWeapon);
         }
-        catch { }
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"weapon tweak skipped: {e.Message}");
+        }
+    }
+
+    static void Apply(Weapon w)
+    {
+        if (w == null) return;
+        var key = w.Pointer;
+
+        if (!baseInterval.ContainsKey(key)) baseInterval[key] = w.WeakspotBaseInterval;
+        w.WeakspotBaseInterval = baseInterval[key] / Mathf.Max(IronstrikeRate, 0.01f);
+
+        var t = w.transform;
+        if (t == null) return;
+        if (!baseScale.ContainsKey(key)) baseScale[key] = t.localScale;
+        t.localScale = baseScale[key] * MeleeReach;
     }
 }

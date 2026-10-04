@@ -6,189 +6,167 @@ using Assets.Scripts.Utilities;
 
 namespace IronstrikeTrainer;
 
-/// <summary>
-/// Builds a "Trainer" submenu and grafts it onto the dev menu's own MenuItem tree.
-///
-/// This deliberately reuses <c>ILDevMenuManager</c> rather than drawing a new UI: it is already a
-/// VR-native text menu driven by the right controller, with the dev's own debounce and anchoring.
-/// We get controller navigation for free and write no canvas code.
-///
-/// Rendering convention:
-///   toggles -> "[x] Name" / "[ ] Name"
-///   values  -> "Name  &lt; 2.0x &gt;"   (Select cycles through Cheats.Steps)
-/// </summary>
+// Grafts onto the dev's own MenuItem tree rather than drawing a new UI. ILDevMenuManager is
+// already a VR text menu on the right controller, so we inherit his debounce and anchoring.
+// Toggles render [x]/[ ]; a MenuItem carries one action, so multipliers cycle a step list.
 internal static class TrainerMenu
 {
-    /// <summary>
-    /// Il2Cpp delegates must outlive the managed lambda, otherwise the GC collects the trampoline
-    /// and the menu action crashes the game. Keeping strong refs here is mandatory, not tidiness.
-    /// </summary>
-    private static readonly List<object> _keepAlive = new();
+    // Il2Cpp delegates die with their managed source: drop the reference and the GC takes the
+    // trampoline out from under the menu. These lists are load-bearing.
+    static readonly List<object> alive = new();
+    static readonly List<Action> relabel = new();
 
-    /// <summary>Label refreshers, run after any action so the menu text reflects new state.</summary>
-    private static readonly List<Action> _refreshers = new();
-
-    private static Il2CppSystem.Action Act(Action fn)
+    static Il2CppSystem.Action Act(Action fn)
     {
-        var del = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(() =>
+        var d = DelegateSupport.ConvertDelegate<Il2CppSystem.Action>(new Action(() =>
         {
-            try
-            {
-                fn();
-                Refresh();
-            }
-            catch (Exception e)
-            {
-                Plugin.Log.LogError($"Menu action failed: {e}");
-            }
+            try { fn(); Redraw(); }
+            catch (Exception e) { Plugin.Log.LogError($"menu action: {e}"); }
         }));
-        _keepAlive.Add(del);
-        return del;
+        alive.Add(d);
+        return d;
     }
 
-    private static MenuItem Leaf(Func<string> label, Action onSelect)
+    // Live label, refreshed after every action.
+    static MenuItem Item(Func<string> label, Action onSelect)
     {
-        var item = new MenuItem(label(), Act(onSelect));
-        _refreshers.Add(() => { try { item.text = label(); } catch { } });
-        _keepAlive.Add(item);
-        return item;
+        var it = new MenuItem(label(), Act(onSelect));
+        relabel.Add(() => { try { it.text = label(); } catch { } });
+        alive.Add(it);
+        return it;
     }
 
-    /// <summary>
-    /// Leaf with a fixed label. Picker entries must use this: they are rebuilt every time the
-    /// submenu opens, and registering a refresher per entry would grow _refreshers without bound,
-    /// making every subsequent menu action slower.
-    /// </summary>
-    private static MenuItem LeafStatic(string label, Action onSelect)
+    // Fixed label. Pickers must use this: they rebuild on every open, and registering a refresher
+    // per entry would grow `relabel` without bound and slow down every later action.
+    static MenuItem Fixed(string label, Action onSelect)
     {
-        var item = new MenuItem(label, Act(onSelect));
-        _keepAlive.Add(item);
-        return item;
+        var it = new MenuItem(label, Act(onSelect));
+        alive.Add(it);
+        return it;
     }
 
-    private static MenuItem Node(string text, List<MenuItem> children)
+    static MenuItem Sub(string text, List<MenuItem> kids)
     {
-        var arr = new Il2CppReferenceArray<MenuItem>(children.Count);
-        for (int i = 0; i < children.Count; i++) arr[i] = children[i];
-        var item = new MenuItem(text, arr);
-        _keepAlive.Add(item);
-        return item;
+        var arr = new Il2CppReferenceArray<MenuItem>(kids.Count);
+        for (int i = 0; i < kids.Count; i++) arr[i] = kids[i];
+        var it = new MenuItem(text, arr);
+        alive.Add(it);
+        return it;
     }
 
-    private static void Refresh()
+    static MenuItem Lazy(string text, Func<MenuItem> build)
     {
-        foreach (var r in _refreshers) r();
-        try
-        {
-            var dm = GM.instance?.ILDevMenuManager;
-            if (dm != null) { dm.needsUpdate = true; dm.UpdateMainText(); }
-        }
-        catch { }
+        var f = DelegateSupport.ConvertDelegate<Il2CppSystem.Func<MenuItem>>(new Func<MenuItem>(build));
+        alive.Add(f);
+        var it = new MenuItem(text, f);
+        alive.Add(it);
+        return it;
     }
 
-    private static string Tick(bool on) => on ? "[x] " : "[ ] ";
-    private static string Mult(float v) => $"< {v:0.##}x >";
+    static void Redraw()
+    {
+        foreach (var r in relabel) r();
+        var dm = GM.instance?.ILDevMenuManager;
+        if (dm == null) return;
+        dm.needsUpdate = true;
+        dm.UpdateMainText();
+    }
 
-    // ======================================================================
+    static string Tick(bool on) => on ? "[x] " : "[ ] ";
+    static string X(float v) => $"< {v:0.##}x >";
+
+    static void Flip(BepInEx.Configuration.ConfigEntry<bool> e)
+    {
+        e.Value = !e.Value;
+        GmHooks.Apply("menu");
+    }
 
     public static MenuItem Build()
     {
-        _keepAlive.Clear();
-        _refreshers.Clear();
-
+        alive.Clear();
+        relabel.Clear();
         var c = Plugin.C;
 
         var survival = new List<MenuItem>
         {
-            Leaf(() => Tick(Cheats.GodMode)  + "God Mode",  () => Cheats.GodMode  = !Cheats.GodMode),
-            Leaf(() => Tick(Cheats.Invisible) + "Invisible (enemies ignore you)",
-                 () => Cheats.Invisible = !Cheats.Invisible),
-            Leaf(() => Tick(c.FastRegen.Value) + "Fast Regen",
-                 () => Set(c.FastRegen, !c.FastRegen.Value)),
-            Leaf(() => "Revive Me", () => GmHooks.ReviveLocal()),
+            Item(() => Tick(Cheats.GodMode) + "God Mode", () => Cheats.GodMode = !Cheats.GodMode),
+            Item(() => Tick(Cheats.Invisible) + "Invisible", () => Cheats.Invisible = !Cheats.Invisible),
+            Item(() => Tick(c.FastRegen.Value) + "Fast Regen", () => Flip(c.FastRegen)),
+            Item(() => "Revive Me", GmHooks.Revive),
         };
 
         var offense = new List<MenuItem>
         {
-            Leaf(() => Tick(Cheats.InstaKill) + "Insta-Kill",
-                 () => Cheats.InstaKill = !Cheats.InstaKill),
-            Leaf(() => Tick(c.HighDamage.Value) + "High Damage (dev flag)",
-                 () => Set(c.HighDamage, !c.HighDamage.Value)),
-            Leaf(() => Tick(c.LowCooldowns.Value) + "Low Cooldowns (dev flag)",
-                 () => Set(c.LowCooldowns, !c.LowCooldowns.Value)),
-            Leaf(() => Tick(c.AllIronstrikes.Value) + "All Ironstrikes (dev flag)",
-                 () => Set(c.AllIronstrikes, !c.AllIronstrikes.Value)),
-            Leaf(() => "Ironstrike Rate  " + Mult(Cheats.IronstrikeRate), () =>
-                 { Cheats.IronstrikeRate = Cheats.NextStep(Cheats.IronstrikeRate);
-                   Cheats.ApplyWeaponTweaks(); }),
-        };
-
-        var teamkill = new List<MenuItem>
-        {
-            Leaf(() => Tick(Cheats.TeamKillEnemies) + "Enemies hurt each other",
-                 () => Cheats.TeamKillEnemies = !Cheats.TeamKillEnemies),
-            Leaf(() => Tick(Cheats.TeamKillPlayers) + "Player side hurts each other",
-                 () => Cheats.TeamKillPlayers = !Cheats.TeamKillPlayers),
+            Item(() => Tick(Cheats.InstaKill) + "Insta-Kill", () => Cheats.InstaKill = !Cheats.InstaKill),
+            Item(() => Tick(c.HighDamage.Value) + "High Damage", () => Flip(c.HighDamage)),
+            Item(() => Tick(c.LowCooldowns.Value) + "Low Cooldowns", () => Flip(c.LowCooldowns)),
+            Item(() => Tick(c.AllIronstrikes.Value) + "All Ironstrikes", () => Flip(c.AllIronstrikes)),
+            Item(() => "Ironstrike Rate  " + X(Cheats.IronstrikeRate), () =>
+            {
+                Cheats.IronstrikeRate = Cheats.NextStep(Cheats.IronstrikeRate);
+                Cheats.ApplyWeaponTweaks();
+            }),
         };
 
         var movement = new List<MenuItem>
         {
-            Leaf(() => "Move Speed   " + Mult(Cheats.MoveSpeed),
+            Item(() => "Move Speed   " + X(Cheats.MoveSpeed),
                  () => Cheats.MoveSpeed = Cheats.NextStep(Cheats.MoveSpeed)),
-            Leaf(() => "Jump Height  " + Mult(Cheats.JumpHeight),
+            Item(() => "Jump Height  " + X(Cheats.JumpHeight),
                  () => Cheats.JumpHeight = Cheats.NextStep(Cheats.JumpHeight)),
         };
 
         var weapons = new List<MenuItem>
         {
-            Leaf(() => "Melee Reach  " + Mult(Cheats.MeleeReach), () =>
-                 { Cheats.MeleeReach = Cheats.NextStep(Cheats.MeleeReach);
-                   Cheats.ApplyWeaponTweaks(); }),
-            Leaf(() => "Projectile Speed  " + Mult(Cheats.ProjectileSpeed),
+            Item(() => "Melee Reach  " + X(Cheats.MeleeReach), () =>
+            {
+                Cheats.MeleeReach = Cheats.NextStep(Cheats.MeleeReach);
+                Cheats.ApplyWeaponTweaks();
+            }),
+            Item(() => "Proj Speed   " + X(Cheats.ProjectileSpeed),
                  () => Cheats.ProjectileSpeed = Cheats.NextStep(Cheats.ProjectileSpeed)),
-            Leaf(() => "Projectile Range  " + Mult(Cheats.ProjectileRange),
+            Item(() => "Proj Range   " + X(Cheats.ProjectileRange),
                  () => Cheats.ProjectileRange = Cheats.NextStep(Cheats.ProjectileRange)),
+        };
+
+        var teamkill = new List<MenuItem>
+        {
+            Item(() => Tick(Cheats.TeamKillEnemies) + "Enemies hurt each other",
+                 () => Cheats.TeamKillEnemies = !Cheats.TeamKillEnemies),
+            Item(() => Tick(Cheats.TeamKillPlayers) + "Player side hurts each other",
+                 () => Cheats.TeamKillPlayers = !Cheats.TeamKillPlayers),
         };
 
         var visual = new List<MenuItem>
         {
-            Leaf(() => Tick(c.NoHealthbars.Value) + "Hide Healthbars",
-                 () => Set(c.NoHealthbars, !c.NoHealthbars.Value)),
-            Leaf(() => Tick(c.NoDamageNumbers.Value) + "Hide Damage Numbers",
-                 () => Set(c.NoDamageNumbers, !c.NoDamageNumbers.Value)),
-            Leaf(() => Tick(c.NoStatusEffects.Value) + "Hide Status Effects",
-                 () => Set(c.NoStatusEffects, !c.NoStatusEffects.Value)),
+            Item(() => Tick(c.NoHealthbars.Value) + "Hide Healthbars", () => Flip(c.NoHealthbars)),
+            Item(() => Tick(c.NoDamageNumbers.Value) + "Hide Damage Numbers", () => Flip(c.NoDamageNumbers)),
+            Item(() => Tick(c.NoStatusEffects.Value) + "Hide Status Effects", () => Flip(c.NoStatusEffects)),
         };
 
         var bots = new List<MenuItem>
         {
-            Leaf(() => "Hurt All Bots",    () => GmHooks.Bots(hurt: true)),
-            Leaf(() => "Despawn All Bots", () => GmHooks.Bots(hurt: false)),
-            Leaf(() => "Spawn Dummy",      () => { GM.instance?.SpawnDummyPlayer(); }),
+            Item(() => "Hurt All Bots", () => GmHooks.Bots(true)),
+            Item(() => "Despawn All Bots", () => GmHooks.Bots(false)),
+            Item(() => "Spawn Dummy", () => GM.instance?.SpawnDummyPlayer()),
         };
 
-        return Node("Trainer", new List<MenuItem>
+        return Sub("Trainer", new List<MenuItem>
         {
-            Node("Survival", survival),
-            Node("Offense",  offense),
-            Node("Movement", movement),
-            Node("Weapons",  weapons),
-            Node("Team Kill", teamkill),
-            Node("Visual",   visual),
-            Node("Bots",     bots),
-            SkillPicker.Build(),
-            WeaponPicker.Build(),
-            Leaf(() => "Reset All", ResetAll),
+            Sub("Survival", survival),
+            Sub("Offense", offense),
+            Sub("Movement", movement),
+            Sub("Weapons", weapons),
+            Sub("Team Kill", teamkill),
+            Sub("Visual", visual),
+            Sub("Bots", bots),
+            Lazy("Give Skill...", Skills),
+            Lazy("Give Weapon Set...", Weapons),
+            Item(() => "Reset All", Reset),
         });
     }
 
-    private static void Set(BepInEx.Configuration.ConfigEntry<bool> e, bool v)
-    {
-        e.Value = v;
-        GmHooks.Apply("menu");
-    }
-
-    private static void ResetAll()
+    static void Reset()
     {
         Cheats.GodMode = Cheats.InstaKill = Cheats.Invisible = false;
         Cheats.TeamKillEnemies = Cheats.TeamKillPlayers = false;
@@ -202,103 +180,70 @@ internal static class TrainerMenu
 
         Cheats.ApplyWeaponTweaks();
         GmHooks.Apply("reset");
-        Plugin.Log.LogInfo("Trainer reset to vanilla.");
     }
 
-    // ------------------------------------------------------------------
-    //  Pickers — filtered to the local fighter's class
-    // ------------------------------------------------------------------
+    // Both pickers are built on open: fighterClass is unknown until a run starts.
 
-    private static class SkillPicker
+    static MenuItem Skills()
     {
-        public static MenuItem Build()
+        var kids = new List<MenuItem>();
+        try
         {
-            // Rebuilt on open: fighterClass is unknown until a run starts.
-            var f = DelegateSupport.ConvertDelegate<Il2CppSystem.Func<MenuItem>>(
-                new Func<MenuItem>(BuildNow));
-            _keepAlive.Add(f);
-            var item = new MenuItem("Give Skill...", f);
-            _keepAlive.Add(item);
-            return item;
-        }
+            var sm = SkillManager.instance;
+            var me = Cheats.Local;
+            if (sm == null || me == null) return Sub("Give Skill (no run)", kids);
 
-        private static MenuItem BuildNow()
-        {
-            var kids = new List<MenuItem>();
-            try
+            var cls = me.fighterClass;
+            var all = sm.GetSkills();
+            for (int i = 0; i < all.Count; i++)
             {
-                var sm = SkillManager.instance;
-                var me = Cheats.Local;
-                if (sm == null || me == null) return Node("Give Skill (no run active)", kids);
+                var sk = all.get_Item(i);
+                if (sk == null || sk.hidden || sk.skillClass != cls) continue;
 
-                var cls = me.fighterClass;
-                var all = sm.GetSkills();
-                for (int i = 0; i < all.Count; i++)
-                {
-                    var sk = all.get_Item(i);
-                    if (sk == null || sk.hidden || sk.skillClass != cls) continue;
-
-                    var type = sk.skillType;
-                    var name = sk.skillName;
-                    var lvl = sk.allowsEnhanced ? 10 : 5;   // max, enhanced tier where allowed
-                    kids.Add(LeafStatic($"{name} (L{lvl})",
-                                        () => sm.GiveSkillToFighter(type, Cheats.Local, lvl)));
-                }
-                Plugin.Log.LogInfo($"Skill picker: {kids.Count} skills for class {cls}.");
+                var type = sk.skillType;
+                var lvl = sk.allowsEnhanced ? 10 : 5;
+                kids.Add(Fixed($"{sk.skillName} (L{lvl})",
+                               () => sm.GiveSkillToFighter(type, Cheats.Local, lvl)));
             }
-            catch (Exception e) { Plugin.Log.LogError($"Skill picker failed: {e}"); }
-
-            return Node($"Give Skill ({kids.Count})", kids);
         }
+        catch (Exception e) { Plugin.Log.LogError($"skill picker: {e}"); }
+
+        return Sub($"Give Skill ({kids.Count})", kids);
     }
 
-    private static class WeaponPicker
+    static MenuItem Weapons()
     {
-        public static MenuItem Build()
+        var tiers = new List<MenuItem>();
+        try
         {
-            var f = DelegateSupport.ConvertDelegate<Il2CppSystem.Func<MenuItem>>(
-                new Func<MenuItem>(BuildNow));
-            _keepAlive.Add(f);
-            var item = new MenuItem("Give Weapon Set...", f);
-            _keepAlive.Add(item);
-            return item;
-        }
+            var am = ArmoryManager.instance;
+            var me = Cheats.Local;
+            if (am?.weaponSetDatabase == null || me == null) return Sub("Give Weapon Set (no run)", tiers);
 
-        private static MenuItem BuildNow()
-        {
-            var tiers = new List<MenuItem>();
-            try
+            var cls = me.fighterClass;
+            var sets = am.weaponSetDatabase.weaponSets;
+
+            foreach (var tier in new[] { WeaponSet.Tier.Legendary, WeaponSet.Tier.Rare, WeaponSet.Tier.Common })
             {
-                var am = ArmoryManager.instance;
-                var me = Cheats.Local;
-                if (am?.weaponSetDatabase == null || me == null)
-                    return Node("Give Weapon Set (no run active)", tiers);
-
-                var cls = me.fighterClass;
-                var sets = am.weaponSetDatabase.weaponSets;
-
-                // Group by tier so "upgraded" weapons (Rare / Legendary) are one hop away.
-                foreach (var tier in new[] { WeaponSet.Tier.Legendary, WeaponSet.Tier.Rare,
-                                             WeaponSet.Tier.Common })
+                var kids = new List<MenuItem>();
+                for (int i = 0; i < sets.Count; i++)
                 {
-                    var kids = new List<MenuItem>();
-                    for (int i = 0; i < sets.Count; i++)
+                    var ws = sets.get_Item(i);
+                    if (ws == null || ws.fighterClass != cls || ws.tier != tier) continue;
+
+                    var set = ws;
+                    var name = string.IsNullOrEmpty(ws.setName) ? ws.type.ToString() : ws.setName;
+                    kids.Add(Fixed(name, () =>
                     {
-                        var ws = sets.get_Item(i);
-                        if (ws == null || ws.fighterClass != cls || ws.tier != tier) continue;
-                        var captured = ws;
-                        var nm = string.IsNullOrEmpty(ws.setName) ? ws.type.ToString() : ws.setName;
-                        kids.Add(LeafStatic(nm,
-                                            () => { GM.instance?.GivePlayerWeaponSet(captured);
-                                                    Cheats.ApplyWeaponTweaks(); }));
-                    }
-                    if (kids.Count > 0) tiers.Add(Node($"{tier} ({kids.Count})", kids));
+                        GM.instance?.GivePlayerWeaponSet(set);
+                        Cheats.ApplyWeaponTweaks();
+                    }));
                 }
-                Plugin.Log.LogInfo($"Weapon picker: {tiers.Count} tiers for class {cls}.");
+                if (kids.Count > 0) tiers.Add(Sub($"{tier} ({kids.Count})", kids));
             }
-            catch (Exception e) { Plugin.Log.LogError($"Weapon picker failed: {e}"); }
-
-            return Node("Give Weapon Set", tiers);
         }
+        catch (Exception e) { Plugin.Log.LogError($"weapon picker: {e}"); }
+
+        return Sub("Give Weapon Set", tiers);
     }
 }

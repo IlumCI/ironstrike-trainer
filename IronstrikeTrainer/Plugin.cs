@@ -4,11 +4,9 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
-using Assets.Scripts.Utilities;
 
 namespace IronstrikeTrainer;
 
-/// <summary>Stable identity. Reverse-DNS GUID so it cannot collide with another mod.</summary>
 internal static class Id
 {
     public const string Guid    = "eu.euroswarms.ironstrike.trainer";
@@ -27,79 +25,50 @@ public class Plugin : BasePlugin
         Log = base.Log;
         C = new Cfg(Config);
 
-        Log.LogInfo($"{Id.Name} v{Id.Version} loading");
+        var h = new Harmony(Id.Guid);
+        h.PatchAll(typeof(GmHooks));
+        h.PatchAll(typeof(Cheats.Patches));
 
-        // Phase 3 requirement: prove a hook actually fires before trusting any logic.
-        // Under IL2CPP an inlined target applies cleanly and then silently never runs.
-        try
-        {
-            var h = new Harmony(Id.Guid);
-            h.PatchAll(typeof(GmHooks));
-            h.PatchAll(typeof(Cheats.Patches));
-            Log.LogInfo("Harmony patches applied. Waiting for GM.InitScene / GM.Update to fire...");
-        }
-        catch (Exception e)
-        {
-            Log.LogError($"Harmony PatchAll failed: {e}");
-        }
+        Log.LogInfo($"{Id.Name} v{Id.Version} loaded. Waiting on GM.InitScene / GM.Update.");
     }
 
-    /// <summary>
-    /// Single gate every cheat consults. IRONSTRIKE is Fusion Host-mode co-op with essentially no
-    /// server-side validation, so a modded client in a shared lobby affects other people. The
-    /// restraint has to live here because the game will not enforce it.
-    /// </summary>
+    // Every cheat goes through here. Fusion runs this game host-authoritative with almost no
+    // validation -- ~36 of 45 RPCs are RpcSources.All and damage is a caller-supplied float --
+    // so a modded client in someone else's lobby is their problem, not just ours.
     internal static bool Allowed()
     {
         if (!C.Enabled.Value) return false;
-        if (!C.SoloOnly.Value) return true;
-        return GmHooks.IsSolo();
+        return !C.SoloOnly.Value || GmHooks.IsSolo();
     }
 }
 
-/// <summary>Config, grouped so it reads sensibly in BepInEx's config file and in r2modman.</summary>
 internal sealed class Cfg
 {
-    public readonly ConfigEntry<bool> Enabled;
-    public readonly ConfigEntry<bool> SoloOnly;
-
-    public readonly ConfigEntry<bool> HighDamage;
-    public readonly ConfigEntry<bool> FastRegen;
-    public readonly ConfigEntry<bool> LowCooldowns;
-    public readonly ConfigEntry<bool> AllIronstrikes;
-    public readonly ConfigEntry<bool> DontSpawnIronstrikes;
-    public readonly ConfigEntry<bool> NoHealthbars;
-    public readonly ConfigEntry<bool> NoDamageNumbers;
-    public readonly ConfigEntry<bool> NoStatusEffects;
-
-    public readonly ConfigEntry<bool> UnlockDevMenu;
-    public readonly ConfigEntry<bool> EnableHotkeys;
+    public readonly ConfigEntry<bool> Enabled, SoloOnly;
+    public readonly ConfigEntry<bool> HighDamage, FastRegen, LowCooldowns;
+    public readonly ConfigEntry<bool> AllIronstrikes, DontSpawnIronstrikes;
+    public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
+    public readonly ConfigEntry<bool> UnlockDevMenu, EnableHotkeys;
 
     public Cfg(ConfigFile f)
     {
-        Enabled = f.Bind("01 General", "Enabled", true,
-            "Master switch. If false the trainer does nothing at all.");
+        Enabled  = f.Bind("01 General", "Enabled", true, "Master switch.");
         SoloOnly = f.Bind("01 General", "SoloOnly", true,
-            "Only act when you are alone in the session (SpawnedPlayerCount <= 1).\n" +
-            "IRONSTRIKE is Fusion Host-mode co-op with no server-side validation, so a modded\n" +
-            "client in a shared lobby affects other people. Leave this on.");
+            "Only act when alone in the session. Leave this on.");
 
-        HighDamage = f.Bind("02 Cheats", "CheatHighDamage", false, "GM.CheatHighDamage");
-        FastRegen = f.Bind("02 Cheats", "CheatFastRegen", false, "GM.CheatFastRegen");
-        LowCooldowns = f.Bind("02 Cheats", "CheatLowCooldowns", false, "GM.CheatLowCooldowns");
-        AllIronstrikes = f.Bind("02 Cheats", "CheatAllIronstrikes", false, "GM.CheatAllIronstrikes");
-        DontSpawnIronstrikes = f.Bind("02 Cheats", "CheatDontSpawnIronstrikes", false,
-            "GM.CheatDontSpawnIronstrikes");
+        HighDamage           = f.Bind("02 Cheats", "CheatHighDamage", false);
+        FastRegen            = f.Bind("02 Cheats", "CheatFastRegen", false);
+        LowCooldowns         = f.Bind("02 Cheats", "CheatLowCooldowns", false);
+        AllIronstrikes       = f.Bind("02 Cheats", "CheatAllIronstrikes", false);
+        DontSpawnIronstrikes = f.Bind("02 Cheats", "CheatDontSpawnIronstrikes", false);
 
-        NoHealthbars = f.Bind("03 Visual", "CheatNoHealthbars", false, "GM.CheatNoHealthbars");
-        NoDamageNumbers = f.Bind("03 Visual", "CheatNoDamageNumbers", false, "GM.CheatNoDamageNumbers");
+        NoHealthbars    = f.Bind("03 Visual", "CheatNoHealthbars", false);
+        NoDamageNumbers = f.Bind("03 Visual", "CheatNoDamageNumbers", false);
         NoStatusEffects = f.Bind("03 Visual", "CheatNoStatusEffecs", false,
-            "GM.CheatNoStatusEffecs (the typo is the dev's, kept to match the field)");
+            "Typo is the dev's; kept to match the field.");
 
-        UnlockDevMenu = f.Bind("04 DevMenu", "UnlockDevMenu", true,
-            "Set GM.instance.AllowDebugMenu = true so the shipped dev menu can open.");
+        UnlockDevMenu = f.Bind("04 DevMenu", "UnlockDevMenu", true);
         EnableHotkeys = f.Bind("04 DevMenu", "EnableHotkeys", true,
-            "Poll keyboard hotkeys each frame. Disable if the game uses Input System only\n" +
-            "(the trainer detects this and self-disables anyway).");
+            "Legacy Input only. Self-disables if this build is Input System only.");
     }
 }
