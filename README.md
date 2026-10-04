@@ -197,6 +197,12 @@ a specific build rather than tracking latest.
 Before publishing anywhere, ask on the [official Discord](https://www.ironstrikegame.com/discord) —
 there is no published mod policy, and E McNeill is a solo dev.
 
+## License
+
+AGPL-3.0. Note this covers *this mod's* source only — IRONSTRIKE itself is proprietary and no game
+code or assets are redistributed here. The repo contains no decompiled output: interop assemblies
+are generated locally from your own installed copy by `regen-interop.sh` and are gitignored.
+
 ## Credits
 
 IRONSTRIKE is by **E McNeill**. The dev menu, cheat flags, AI debug visualisers and in-game VR
