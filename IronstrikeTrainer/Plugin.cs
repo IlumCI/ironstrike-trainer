@@ -8,7 +8,15 @@ using Assets.Scripts.Utilities;
 
 namespace IronstrikeTrainer;
 
-[BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
+/// <summary>Stable identity. Reverse-DNS GUID so it cannot collide with another mod.</summary>
+internal static class Id
+{
+    public const string Guid    = "eu.euroswarms.ironstrike.trainer";
+    public const string Name    = "Ironstrike Trainer";
+    public const string Version = "0.1.0";
+}
+
+[BepInPlugin(Id.Guid, Id.Name, Id.Version)]
 public class Plugin : BasePlugin
 {
     internal static new ManualLogSource Log;
@@ -19,13 +27,13 @@ public class Plugin : BasePlugin
         Log = base.Log;
         C = new Cfg(Config);
 
-        Log.LogInfo($"{MyPluginInfo.PLUGIN_NAME} v{MyPluginInfo.PLUGIN_VERSION} loading");
+        Log.LogInfo($"{Id.Name} v{Id.Version} loading");
 
         // Phase 3 requirement: prove a hook actually fires before trusting any logic.
         // Under IL2CPP an inlined target applies cleanly and then silently never runs.
         try
         {
-            var h = new Harmony(MyPluginInfo.PLUGIN_GUID);
+            var h = new Harmony(Id.Guid);
             h.PatchAll(typeof(GmHooks));
             h.PatchAll(typeof(Cheats.Patches));
             Log.LogInfo("Harmony patches applied. Waiting for GM.InitScene / GM.Update to fire...");
