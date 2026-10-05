@@ -176,9 +176,9 @@ nowhere else. While it is loaded, the main menu's public play options are greyed
 | Private Match | play with friends using a code | allowed |
 | Solo | offline | allowed |
 
-The matchmaking functions behind the public buttons are blocked as well. Incoming connections are
-refused unless you started a Private Match, so friends can join your private game and nobody can
-join anything else. The join code is never written to the log.
+The matchmaking functions behind the public buttons are blocked as well, so the only multiplayer
+game you can host or join while modded is a Private Match. The join code is never written to the
+log.
 
 Two config settings control this, both on by default: `SafeMode` (the lock) and
 `AllowPrivateMatches` (the private-match exception).

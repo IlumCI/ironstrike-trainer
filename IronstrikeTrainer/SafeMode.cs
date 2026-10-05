@@ -40,15 +40,11 @@ internal static class SafeMode
             : "SAFE MODE OFF: public matchmaking is NOT blocked. Do not run cheats like this.");
     }
 
-    // Refuse incoming connections unless we deliberately went private, so friends can join a
-    // private match we host and nobody can join anything else. Holding this on unconditionally, as
-    // an earlier version did, would have locked friends out of private matches too.
-    internal static void Enforce()
-    {
-        bool refuse = On && !enteredPrivately;
-        try { if (GM.TestAutoRefuseAllConnections != refuse) GM.TestAutoRefuseAllConnections = refuse; }
-        catch { }
-    }
+    // There used to be an Enforce() here that held GM.TestAutoRefuseAllConnections on unless we
+    // had entered privately. It broke private matches: a host whose private status was misjudged
+    // refused every joiner, who saw a generic disconnect error. It also protected nothing -- with
+    // Play, HOST and matchmaking blocked, the only game a modded player can host is a private one.
+    // So connections are left entirely to the game.
 
     // ---------------------------------------------------------------- entry points
 
