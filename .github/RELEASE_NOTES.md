@@ -1,4 +1,6 @@
-**v0.1.0 is unverified** — it compiles and packages cleanly but has not yet been confirmed working in game. If the dev menu opens and the Trainer submenu works, say so and the next tag drops the prerelease flag.
+**Verified loading in game.** BepInEx injects, the Harmony hook on `GM.Update` fires, and the cheat
+flags are confirmed written and read back from the live game. Opening the menu with F1 and the
+skill/weapon pickers are still unconfirmed by hand.
 
 Drop-in install: download the zip and extract `BepInEx/` over your IRONSTRIKE folder
 (the one containing `Ironstrike.exe`), or install it with r2modman / Gale.

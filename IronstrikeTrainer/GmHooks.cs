@@ -11,14 +11,21 @@ namespace IronstrikeTrainer;
 [HarmonyPatch]
 internal static class GmHooks
 {
-    static bool sawInit, sawUpdate, inputDead, menuGrafted;
+    static bool sawInit, sawUpdate, menuGrafted, loggedApply;
 
+    // Legacy UnityEngine.Input throws in this build (Input System only), so hotkeys go through
+    // Unity.InputSystem. Probed once, then cached.
+    enum InputMode { Unknown, Legacy, System, None }
+    static InputMode mode = InputMode.Unknown;
+
+    // Kept because it is the natural per-scene hook, but IL2CPP inlines it and it never fires in
+    // practice -- verified against be.788. Flag upkeep is driven from Update instead.
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GM), nameof(GM.InitScene))]
     static void InitScene()
     {
         if (!sawInit) { sawInit = true; Plugin.Log.LogInfo("HOOK CONFIRMED: GM.InitScene fired."); }
-        menuGrafted = false;   // dev menu is rebuilt per scene
+        menuGrafted = false;
         Apply("InitScene");
     }
 
@@ -31,7 +38,8 @@ internal static class GmHooks
 
         // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
         Cheats.Patches.PinGodMode();
-        if (Plugin.C.EnableHotkeys.Value && !inputDead) Hotkeys();
+        EnsureFlags();
+        if (Plugin.C.EnableHotkeys.Value && mode != InputMode.None) Hotkeys();
     }
 
     // NetworkIsRunning() is not a solo test: solo play still starts a Fusion Host session, since
@@ -49,6 +57,23 @@ internal static class GmHooks
             Plugin.Log.LogWarning($"solo check failed, assuming not solo: {e.Message}");
             return false;
         }
+    }
+
+    // The game clears these on scene load, and InitScene never fires, so re-assert them from
+    // Update. Compares first and only writes on a mismatch, so the common case is eight reads.
+    static void EnsureFlags()
+    {
+        var c = Plugin.C;
+        if (GM.CheatHighDamage           == c.HighDamage.Value
+         && GM.CheatFastRegen            == c.FastRegen.Value
+         && GM.CheatLowCooldowns         == c.LowCooldowns.Value
+         && GM.CheatAllIronstrikes       == c.AllIronstrikes.Value
+         && GM.CheatDontSpawnIronstrikes == c.DontSpawnIronstrikes.Value
+         && GM.CheatNoHealthbars         == c.NoHealthbars.Value
+         && GM.CheatNoDamageNumbers      == c.NoDamageNumbers.Value
+         && GM.CheatNoStatusEffecs       == c.NoStatusEffects.Value) return;
+
+        Apply("drift");
     }
 
     internal static void Apply(string why)
@@ -70,28 +95,77 @@ internal static class GmHooks
         if (gm != null && c.UnlockDevMenu.Value) gm.AllowDebugMenu = true;
 
         Cheats.ApplyWeaponTweaks();
-        Plugin.Log.LogInfo($"applied ({why})");
+
+        if (!loggedApply)
+        {
+            loggedApply = true;
+            Plugin.Log.LogInfo($"applied ({why}); readback highDamage={GM.CheatHighDamage} " +
+                               $"lowCooldowns={GM.CheatLowCooldowns} noHealthbars={GM.CheatNoHealthbars} " +
+                               $"allowDebugMenu={GM.instance?.AllowDebugMenu}");
+        }
     }
 
     static void Hotkeys()
     {
+        if (mode == InputMode.Unknown) mode = Probe();
+        if (mode == InputMode.None) return;
+
         try
         {
-            if (Down(KeyCode.F1)) ToggleDevMenu();
-            else if (Down(KeyCode.F2)) Apply("F2");
-            else if (Down(KeyCode.F3)) Revive();
-            else if (Down(KeyCode.F4)) Bots(true);
-            else if (Down(KeyCode.F5)) Bots(false);
+            if (Down(1)) ToggleDevMenu();
+            else if (Down(2)) Apply("F2");
+            else if (Down(3)) Revive();
+            else if (Down(4)) Bots(true);
+            else if (Down(5)) Bots(false);
         }
         catch (Exception e)
         {
-            inputDead = true;
-            Plugin.Log.LogWarning(
-                $"hotkeys off ({e.GetType().Name}). Everything is in the VR dev menu anyway.");
+            mode = InputMode.None;
+            Plugin.Log.LogWarning($"hotkeys off ({e.GetType().Name}). Use the in-game dev menu.");
         }
     }
 
-    static bool Down(KeyCode k) => Input.GetKeyDown(k);
+    static InputMode Probe()
+    {
+        try
+        {
+            Input.GetKeyDown(KeyCode.F1);
+            Plugin.Log.LogInfo("input: legacy UnityEngine.Input");
+            return InputMode.Legacy;
+        }
+        catch (Exception) { }
+
+        try
+        {
+            if (UnityEngine.InputSystem.Keyboard.current != null)
+            {
+                Plugin.Log.LogInfo("input: Unity.InputSystem (legacy Input unavailable)");
+                return InputMode.System;
+            }
+            Plugin.Log.LogWarning("input: no keyboard device. Hotkeys off.");
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"input: unavailable ({e.GetType().Name}). Hotkeys off.");
+        }
+        return InputMode.None;
+    }
+
+    // n is the function-key number, 1..5.
+    static bool Down(int n)
+    {
+        if (mode == InputMode.Legacy)
+            return Input.GetKeyDown((KeyCode)((int)KeyCode.F1 + n - 1));
+
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (kb == null) return false;
+        var k = n switch
+        {
+            1 => kb.f1Key, 2 => kb.f2Key, 3 => kb.f3Key,
+            4 => kb.f4Key, 5 => kb.f5Key, _ => null,
+        };
+        return k != null && k.wasPressedThisFrame;
+    }
 
     internal static void ToggleDevMenu()
     {

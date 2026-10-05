@@ -197,7 +197,7 @@ internal static class TrainerMenu
             var all = sm.GetSkills();
             for (int i = 0; i < all.Count; i++)
             {
-                var sk = all.get_Item(i);
+                var sk = all[i];
                 if (sk == null || sk.hidden || sk.skillClass != cls) continue;
 
                 var type = sk.skillType;
@@ -228,7 +228,7 @@ internal static class TrainerMenu
                 var kids = new List<MenuItem>();
                 for (int i = 0; i < sets.Count; i++)
                 {
-                    var ws = sets.get_Item(i);
+                    var ws = sets[i];
                     if (ws == null || ws.fighterClass != cls || ws.tier != tier) continue;
 
                     var set = ws;

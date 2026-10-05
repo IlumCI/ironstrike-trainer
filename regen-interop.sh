@@ -40,9 +40,22 @@ rm -rf "$WORK/dummy"
 "$CPP2IL" --game-path "$GAME" --exe-name Ironstrike \
           --output-to "$WORK/dummy" --output-as dummydll >/dev/null
 
+# Unity base libraries are required for unstripping. Without them the generated assemblies
+# DIVERGE from what BepInEx produces at runtime -- e.g. List<T> loses its indexer and only
+# exposes get_Item, so code that compiles here fails against the real game.
+UNITY_VER="2021.3.28"
+if [[ ! -d "$WORK/unity-libs" ]]; then
+  echo "==> fetching Unity $UNITY_VER base libraries"
+  curl -sL -o "$WORK/unity-libs.zip" "https://unity.bepinex.dev/libraries/$UNITY_VER.zip"
+  mkdir -p "$WORK/unity-libs"
+  python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
+          "$WORK/unity-libs.zip" "$WORK/unity-libs"
+fi
+
 echo "==> Il2CppInterop: interop assemblies"
 rm -rf "$HERE/interop"
 il2cppinterop generate --input "$WORK/dummy" --output "$HERE/interop" \
-                       --game-assembly "$GAME/GameAssembly.dll" >/dev/null
+                       --game-assembly "$GAME/GameAssembly.dll" \
+                       --unity "$WORK/unity-libs" >/dev/null
 
 echo "==> done: $HERE/interop ($(ls "$HERE/interop" | wc -l) assemblies)"

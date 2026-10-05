@@ -88,16 +88,16 @@ if (Test-Path $b) {
 }
 
 Write-Host "`n5. Log"
-$log = Join-Path $b 'LogOutput.txt'
+$log = Join-Path $b 'LogOutput.log'
 if (Test-Path $log) {
-    Pass "LogOutput.txt exists -> Doorstop DID inject at least once"
+    Pass "LogOutput.log exists -> Doorstop DID inject at least once"
     Note "last lines:"
     Get-Content $log -Tail 12 | ForEach-Object { Write-Host "           $_" -ForegroundColor DarkGray }
     if (Select-String -Path $log -Pattern 'HOOK CONFIRMED' -Quiet) { Pass "our plugin's hooks fired" }
     elseif (Select-String -Path $log -Pattern 'IronstrikeTrainer' -Quiet) { Warn "plugin loaded but hooks have not fired" }
     else { Warn "no trace of IronstrikeTrainer in the log" }
 } else {
-    Fail "no BepInEx\LogOutput.txt -- the loader has never run"
+    Fail "no BepInEx\LogOutput.log -- the loader has never run"
 }
 
 Write-Host "`n6. Antivirus / Mark-of-the-Web"

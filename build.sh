@@ -13,19 +13,19 @@ export DOTNET_ROLL_FORWARD=LatestMajor
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 GAME_DIR="${1:-}"
-LOCAL_INTEROP="${IRONSTRIKE_INTEROP:-$HERE/interop}"
+LOCAL_INTEROP="${IRONSTRIKE_INTEROP:-$HERE/refs}"
 
 if [[ -n "$GAME_DIR" && -f "$GAME_DIR/BepInEx/interop/GameAssembly.dll" ]]; then
   INTEROP="$GAME_DIR/BepInEx/interop"
   echo "==> interop: game-generated ($INTEROP)"
 else
   INTEROP="$LOCAL_INTEROP"
-  echo "==> interop: local fallback ($INTEROP)"
+  echo "==> refs: committed refs/ ($INTEROP)"
 fi
 
 if [[ ! -f "$INTEROP/GameAssembly.dll" ]]; then
   echo "ERROR: no interop assemblies at $INTEROP" >&2
-  echo "       Run ./regen-interop.sh, or pass the game dir once BepInEx has run." >&2
+  echo "       refs/ is committed; if it is missing, run ./regen-interop.sh." >&2
   exit 1
 fi
 
@@ -39,7 +39,7 @@ if [[ -n "$GAME_DIR" ]]; then
   mkdir -p "$DEST"
   cp -v "$DLL" "$DEST/"
   echo "==> deployed. Tail the log with:"
-  echo "    tail -f '$GAME_DIR/BepInEx/LogOutput.txt'"
+  echo "    tail -f '$GAME_DIR/BepInEx/LogOutput.log'"
 else
   echo "==> built: $DLL"
 fi

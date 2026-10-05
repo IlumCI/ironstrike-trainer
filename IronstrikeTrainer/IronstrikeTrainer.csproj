@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>IronstrikeTrainer</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -30,6 +30,7 @@
     <Reference Include="$(InteropDir)/Assembly-CSharp.dll" Private="false" />
     <Reference Include="$(InteropDir)/UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="$(InteropDir)/UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Unity.InputSystem.dll" Private="false" />
     <Reference Include="$(InteropDir)/Il2Cppmscorlib.dll" Private="false" />
   </ItemGroup>
 

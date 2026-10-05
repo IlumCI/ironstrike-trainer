@@ -24,14 +24,14 @@ Then, before you put the headset on, open `BepInEx/config/BepInEx.cfg` and set:
 Enabled = false
 ```
 
-The console window steals focus mid-session and will wreck a run. Read `BepInEx/LogOutput.txt`
+The console window steals focus mid-session and will wreck a run. Read `BepInEx/LogOutput.log`
 instead.
 
 Press **F1** in game to open the dev menu, then pick Trainer.
 
 ### If nothing happens
 
-If no `BepInEx/LogOutput.txt` or `BepInEx/interop` appears after launching, Doorstop never
+If no `BepInEx/LogOutput.log` or `BepInEx/interop` appears after launching, Doorstop never
 injected. Run the included doctor with the game closed:
 
 ```powershell
