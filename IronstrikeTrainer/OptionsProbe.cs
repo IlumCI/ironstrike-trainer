@@ -47,11 +47,26 @@ internal static class OptionsProbe
         try
         {
 
-            Plugin.Log.LogInfo("=== options menu structure ===");
             var sb = new StringBuilder();
-            Walk(__instance.transform, 0, sb, 7);
-            foreach (var line in sb.ToString().Split('\n')) 
-                if (line.Length > 0) Plugin.Log.LogInfo(line);
+            sb.Append("=== OptionsMenu full subtree ===\n");
+            Walk(__instance.transform, 0, sb, 99);
+
+            var org0 = __instance.GetComponentInChildren<OptionsOrganizerUI>(true);
+            if (org0 != null && org0.optionsItems != null)
+            {
+                sb.Append($"\n=== {org0.optionsItems.Count} cards, each in full ===\n");
+                for (int i = 0; i < org0.optionsItems.Count; i++)
+                {
+                    var it = org0.optionsItems[i];
+                    if (it == null) continue;
+                    sb.Append($"\n--- [{i}] {it.name} height={it.height} visible={it.visible} ---\n");
+                    Walk(it.transform, 0, sb, 99);
+                }
+            }
+
+            var path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "options-dump.txt");
+            System.IO.File.WriteAllText(path, sb.ToString());
+            Plugin.Log.LogMessage($"options structure written to {path} ({sb.Length} chars)");
 
             var org = __instance.GetComponentInChildren<OptionsOrganizerUI>(true);
             if (org == null) { Plugin.Log.LogWarning("no OptionsOrganizerUI found"); return; }

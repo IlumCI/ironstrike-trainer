@@ -45,6 +45,8 @@ internal static class Cheats
         JumpHeight      = c.JumpHeight.Value;
         ProjectileSpeed = c.ProjectileSpeed.Value;
         ProjectileRange = c.ProjectileRange.Value;
+
+        UpdateInvisibility();
     }
 
     static bool Same(float a, float b) => Mathf.Abs(a - b) < 0.0001f;
@@ -111,15 +113,15 @@ internal static class Cheats
             }
         }
 
-        // Same lever Smoke Bombs and the Invisibility spell pull.
+        // Deliberately no longer denies SkillFlagType.Targetable. Doing that left the AI with no
+        // valid target at all, and with nothing to score the bots simply froze. The game ships
+        // StatusType.Invisibility, so use that instead and let the AI behave as it does against the
+        // real spell. Kept as a patch point only for the PATCH LIVE telemetry.
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Fighter), nameof(Fighter.CalcSkillAndStatusEffectFlag))]
         static void StatFlag(Fighter __instance, SkillFlagType type, ref bool __result)
         {
-            if (!Invisible || type != SkillFlagType.Targetable) return;
-            if (!Plugin.Allowed() || !IsLocal(__instance)) return;
-            FirstHit("Fighter.CalcSkillAndStatusEffectFlag(Targetable)");
-            __result = false;
+            if (type == SkillFlagType.Targetable) FirstHit("Fighter.CalcSkillAndStatusEffectFlag(Targetable)");
         }
 
         [HarmonyPostfix]
@@ -170,6 +172,47 @@ internal static class Cheats
         [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes),
                       new[] { typeof(Fighter), typeof(SpellType) })]
         static void SpawnedSpell(Projectile __instance, Fighter parent) => Tune(__instance, parent);
+    }
+
+    // Invisibility via the game's own StatusType.Invisibility. Re-applied on a rolling window so
+    // it persists while enabled and lapses on its own shortly after being switched off, which also
+    // means we never have to remove it by hand.
+    const float InvisWindow = 3f;
+    static int invisRefreshAt;
+
+    static void UpdateInvisibility()
+    {
+        try
+        {
+            var me = Local;
+            var sm = StatusManager.instance;
+            if (me == null || sm == null) return;
+
+            int now = TimeHelper.CurrentTick;
+
+            if (!Invisible || !Plugin.Allowed())
+            {
+                if (invisRefreshAt != 0)
+                {
+                    sm.RemoveStatusEffectFromFighter(StatusType.Invisibility, me, me);
+                    invisRefreshAt = 0;
+                    Plugin.Log.LogInfo("invisibility cleared");
+                }
+                return;
+            }
+
+            if (now < invisRefreshAt) return;
+
+            sm.GiveStatusEffectToFighter(StatusType.Invisibility, me, me,
+                                         now + TimeHelper.GetTicks(InvisWindow), 1f);
+            invisRefreshAt = now + TimeHelper.GetTicks(InvisWindow * 0.5f);
+            FirstHit("StatusManager.GiveStatusEffectToFighter(Invisibility)");
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"invisibility update failed: {e.Message}");
+            Invisible = false;
+        }
     }
 
     // Reach and ironstrike cadence live on the equipped Weapon, so they are re-applied on gear
