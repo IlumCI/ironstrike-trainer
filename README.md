@@ -99,7 +99,7 @@ It checks the usual causes: wrong BepInEx variant, zip extracted one folder too 
 
 ## Using it
 
-Open the trainer with the **TRAINER** button under Options on the main menu, or press **F1**
+Open the trainer with the small **TRAINER** button in the corner of the Options card on the main menu, or press **F1**
 anywhere. It appears in front of you, in the game's own menu style.
 
 ```

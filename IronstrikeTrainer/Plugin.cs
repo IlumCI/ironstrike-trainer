@@ -11,7 +11,7 @@ internal static class Id
 {
     public const string Guid    = "eu.euroswarms.ironstrike.trainer";
     public const string Name    = "Ironstrike Trainer";
-    public const string Version = "1.0.0";
+    public const string Version = "1.0.1";
 }
 
 [BepInPlugin(Id.Guid, Id.Name, Id.Version)]
