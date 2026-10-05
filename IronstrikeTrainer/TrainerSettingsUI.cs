@@ -59,20 +59,30 @@ internal static class TrainerSettingsUI
         string group = null;
         int added = 0;
 
+        int failed = 0;
         foreach (var row in TrainerModel.Rows)
         {
-            if (row.Group != group)
+            try
             {
-                group = row.Group;
-                if (titleTemplate != null) AddTitle(org, parent, titleTemplate, $"TRAINER — {group.ToUpper()}");
+                if (row.Group != group)
+                {
+                    group = row.Group;
+                    if (titleTemplate != null)
+                        AddTitle(org, parent, titleTemplate, $"TRAINER — {group.ToUpper()}");
+                }
+                AddRow(org, parent, checkboxTemplate, row);
+                added++;
             }
-            AddRow(org, parent, checkboxTemplate, row);
-            added++;
+            catch (Exception e)
+            {
+                failed++;
+                Plugin.Log.LogError($"row '{row.Label()}' failed: {e.Message}");
+            }
         }
 
-        org.Refresh();
-        injected = true;
-        Plugin.Log.LogMessage($"settings menu: added {added} trainer rows");
+        org.Refresh();        // also recalculates scroll content height
+        injected = added > 0;
+        Plugin.Log.LogMessage($"settings menu: added {added} trainer rows, {failed} failed");
     }
 
     static void AddTitle(OptionsOrganizerUI org, Transform parent, OptionsItemUI template, string text)
@@ -87,7 +97,7 @@ internal static class TrainerSettingsUI
         var tmps = go.GetComponentsInChildren<TextMeshProUGUI>(true);
         if (tmps.Count > 0) SetText(tmps[0], text);
         for (int i = 1; i < tmps.Count; i++) tmps[i].gameObject.SetActive(false);
-        if (item != null) { org.optionsItems.Add(item); item.SetVisible(true); }
+        Register(org, go, item);
     }
 
     static void AddRow(OptionsOrganizerUI org, Transform parent, OptionsItemUI template,
@@ -138,7 +148,19 @@ internal static class TrainerSettingsUI
             catch { }
         });
 
-        if (item != null) { org.optionsItems.Add(item); item.SetVisible(true); }
+        Register(org, go, item);
+    }
+
+    // OptionsItemUI.rectTransform is assigned in Start(), which Unity defers by a frame. The game's
+    // Transitioner calls SetVisible on every registered item, so an item added before its Start runs
+    // NREs inside the game. Fill the field in now and set `visible` directly instead of calling
+    // SetVisible, which does more than assign.
+    static void Register(OptionsOrganizerUI org, GameObject go, OptionsItemUI item)
+    {
+        if (item == null) return;
+        item.rectTransform = go.GetComponent<RectTransform>();
+        item.visible = true;
+        org.optionsItems.Add(item);
     }
 
     // The tick is the last Image under the button; Background/Outline/Glow come first.
