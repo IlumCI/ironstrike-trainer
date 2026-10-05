@@ -34,12 +34,18 @@ internal static class GmHooks
     [HarmonyPatch(typeof(GM), nameof(GM.Update))]
     static void Update()
     {
-        if (!sawUpdate) { sawUpdate = true; Plugin.Log.LogInfo("HOOK CONFIRMED: GM.Update fired."); }
+        if (!sawUpdate)
+        {
+            sawUpdate = true;
+            Plugin.Log.LogInfo("HOOK CONFIRMED: GM.Update fired.");
+            TamperWatch.Init(Plugin.C.WatchTamper.Value);
+        }
         if (!Plugin.C.Enabled.Value) return;
 
         // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
         Cheats.Patches.PinGodMode();
         EnsureFlags();
+        TamperWatch.Tick();
         MaybeAutoOpen();
         if (Plugin.C.EnableHotkeys.Value && mode != InputMode.None) Hotkeys();
     }
@@ -56,6 +62,9 @@ internal static class GmHooks
         if (now - firstUpdateAt < after) return;
 
         autoOpened = true;
+
+        if (Plugin.C.ProbeOptions.Value) { OptionsProbe.Run(); return; }
+
         Plugin.Log.LogInfo($"auto-opening dev menu after {after}s");
         ToggleDevMenu();
     }

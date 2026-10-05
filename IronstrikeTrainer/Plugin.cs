@@ -28,6 +28,7 @@ public class Plugin : BasePlugin
         var h = new Harmony(Id.Guid);
         h.PatchAll(typeof(GmHooks));
         h.PatchAll(typeof(Cheats.Patches));
+        h.PatchAll(typeof(OptionsProbe));
 
         Log.LogInfo($"{Id.Name} v{Id.Version} loaded. Waiting on GM.InitScene / GM.Update.");
     }
@@ -50,6 +51,7 @@ internal sealed class Cfg
     public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
     public readonly ConfigEntry<bool> UnlockDevMenu, EnableHotkeys;
     public readonly ConfigEntry<float> AutoOpenAfter;
+    public readonly ConfigEntry<bool> WatchTamper, ProbeOptions;
 
     public Cfg(ConfigFile f)
     {
@@ -69,6 +71,10 @@ internal sealed class Cfg
             "Typo is the dev's; kept to match the field.");
 
         UnlockDevMenu = f.Bind("04 DevMenu", "UnlockDevMenu", true);
+        ProbeOptions = f.Bind("05 Debug", "ProbeOptionsMenu", false,
+            "Dump the options menu hierarchy and components the first time it opens.");
+        WatchTamper = f.Bind("05 Debug", "WatchAntiTamper", false,
+            "Log the game's anti-tamper state (GM.pleaseDontHack..., banbu, dcd) when it changes.");
         AutoOpenAfter = f.Bind("04 DevMenu", "AutoOpenAfterSeconds", 0f,
             "Debug aid: open the menu automatically this many seconds after a scene loads,\n"
             + "and log where it sits in the hierarchy. 0 disables.");

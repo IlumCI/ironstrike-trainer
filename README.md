@@ -1,15 +1,13 @@
 # Ironstrike Trainer
 
-> ## ⚠️ Do not use v0.1.0 / v0.1.1
+> ## Status
 >
-> Enabling the dev menu trips an anti-tamper check in the game. It prints a message and
-> **force-fails your current run.** `GM.CreateDevMenu()` returns null and the run ends.
+> The cheat flags work. The **dev menu does not** — `GM.CreateDevMenu()` is deliberately refused by
+> the game, and reaching for it shows a message from the developer and ends your run. A custom UI is
+> in progress; until then v0.1.1 loads and applies flags but has no way to open a menu.
 >
-> Nothing is uploaded and no account flag is set — `IsBanned` and `AnimusEverGainedSuspect`
-> stay clear, and the binary has no POST path — but the mod does not work and will ruin runs.
->
-> Both releases are left up for reference only. See the README.
-
+> Verified in game: with every `Cheat*` flag on and the dev menu untouched, the game's own guard
+> stays off (`guard=False`). Nothing is uploaded and no account flag is set.
 
 A cheat menu for [IRONSTRIKE](https://store.steampowered.com/app/3233230/IRONSTRIKE/), built as a
 BepInEx 6 IL2CPP plugin.
@@ -21,24 +19,82 @@ Single-player only. See [Scope](#scope).
 
 ## Install
 
-Grab the zip from [Releases](../../releases) and extract `BepInEx/` over your game folder, or
-install it through r2modman / Gale.
+### 1. Get BepInEx — this exact file
 
-You need BepInEx 6 IL2CPP first — `BepInExPack_IL2CPP` 6.0.755, or a bleeding-edge build from
-[builds.bepinex.dev](https://builds.bepinex.dev/projects/bepinex_be). Get the
-**Unity.IL2CPP win-x64** variant; the Mono one will not load.
+**[⬇ BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)**
 
-Then, before you put the headset on, open `BepInEx/config/BepInEx.cfg` and set:
+Clicking that downloads it directly. For reference:
+
+```
+file    BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip
+size    34,336,405 bytes  (32.7 MiB)
+sha256  f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a
+```
+
+Verify it if you like — PowerShell: `Get-FileHash .\BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip`,
+or Linux/macOS: `sha256sum BepInEx-*.zip`.
+
+That build page lists **13** files and only this one works. Do not take:
+
+| Wrong file | Why |
+| --- | --- |
+| `BepInEx-Unity.Mono-win-x64-...` | Mono, not IL2CPP. Nearly the same name, no `dotnet/` folder, will not load. |
+| `BepInEx-Unity.IL2CPP-win-x86-...` | 32-bit. The game is x64. |
+| `BepInEx-Unity.IL2CPP-linux-x64-...` | For native Linux builds. IRONSTRIKE is a Windows binary even under Proton. |
+| `BepInEx-NET.Framework-...` / `BepInEx-NET.CoreCLR-...` | Not Unity loaders at all. |
+
+### 2. Extract it into the game folder
+
+Open the folder containing `Ironstrike.exe` — in Steam: right-click IRONSTRIKE → Manage → Browse
+local files.
+
+**All six top-level items from the zip go directly in that folder**, not in a subfolder:
+
+```
+IRONSTRIKE/
+├── Ironstrike.exe          ← already there
+├── winhttp.dll             ← from the zip
+├── doorstop_config.ini     ← from the zip
+├── .doorstop_version       ← from the zip
+├── changelog.txt           ← from the zip
+├── dotnet/                 ← from the zip
+└── BepInEx/                ← from the zip
+```
+
+This is the single most common mistake: the zip often extracts into a nested folder and people move
+only `BepInEx/` across. Without `winhttp.dll` and `dotnet/` beside the exe, **nothing happens at all
+on launch** — no new folders, no log.
+
+### 3. Launch once
+
+First run downloads Unity base libraries and generates interop assemblies. It takes about a minute
+and the window may look frozen. Do not kill it. When it finishes you will have
+`BepInEx/LogOutput.log` and a populated `BepInEx/interop/`.
+
+On **Linux/Proton** you also need this in Steam → Properties → Launch Options, or Doorstop will not
+inject (Wine prefers its own `winhttp`):
+
+```
+WINEDLLOVERRIDES="winhttp=n,b" %command%
+```
+
+Not needed on Windows.
+
+### 4. Turn off the console before using the headset
+
+In `BepInEx/config/BepInEx.cfg`:
 
 ```ini
 [Logging.Console]
 Enabled = false
 ```
 
-The console window steals focus mid-session and will wreck a run. Read `BepInEx/LogOutput.log`
-instead.
+A console window stealing focus mid-session will wreck a run. Read `BepInEx/LogOutput.log` instead.
 
-Press **F1** in game to open the dev menu, then pick Trainer.
+### 5. Add the mod
+
+Drop `IronstrikeTrainer.dll` from the [latest release](../../releases) into `BepInEx/plugins/`.
+Launch, then edit `BepInEx/config/eu.euroswarms.ironstrike.trainer.cfg` and relaunch.
 
 ### If nothing happens
 
@@ -108,17 +164,35 @@ rather than only clipping each other by accident.
 
 ## Scope
 
-No currency. Nothing here grants Shards, Geodes, Essence, Animus or Gems, and it does not touch
-cosmetic prices. IRONSTRIKE is free-to-play with real-money Gem IAP from a solo developer, and the
-build persists `AnimusEverGainedSuspect` and `IsBanned` and fetches remote ban lists. The internals
-are wide open and clearly not defended. The monetisation is the part that is.
+### The developer asked for exactly one thing
 
-Single-player only, enforced in code and on by default. The netcode is Fusion Host mode, so one
-player's client is authoritative for everyone, and it validates almost nothing: of roughly 45 RPCs
-only 7 are authority-gated, damage magnitude is a caller-supplied float, and player health rides in
-each client's own `NetworkInput`. The game cannot stop a modded client from affecting other people,
-so the check lives here. It is `NetworkLifecycle.SpawnedPlayerCount <= 1`, not `NetworkIsRunning()`,
-because solo play still starts a Host session.
+There is a string in the game binary addressed to modders. Verbatim:
+
+> "Please don't offer cheats that can transfer to public multiplayer games. It ruins the challenge
+> for people who don't want cheats on their team. I'm a solo indie developer (and busy taking care
+> of a new baby), and I know I can't win an arms race with modders, so I appeal to you personally.
+> Please limit cheats to private games with you and your friends."
+
+So private games are fine and public lobbies are not. That is the whole rule, and this mod is built
+around it rather than around it being unenforceable.
+
+`SoloOnly` is on by default and gates every cheat behind
+`NetworkLifecycle.SpawnedPlayerCount <= 1`. Note that is the correct check and `NetworkIsRunning()`
+is not, because solo play still starts a Fusion Host session.
+
+It matters because the netcode cannot defend itself. Fusion Host mode makes one player's client
+authoritative for everyone, and of roughly 45 RPCs only 7 are authority-gated; damage magnitude is
+a caller-supplied float and player health rides in each client's own `NetworkInput`. Nothing would
+stop a modded client from affecting other people, so the restraint is in this code.
+
+### Not a currency mod
+
+Nothing here grants Shards, Geodes, Essence, Animus or Gems, and it does not touch cosmetic prices.
+That is a deliberate line, not a technical limit.
+
+(An earlier version of this README claimed IRONSTRIKE was free-to-play with real-money IAP. That was
+wrong — the Steam release is a paid game. The Gem IAP symbols and the `f2pVersion` flag belong to the
+Quest/Meta build.)
 
 ## Building
 
