@@ -40,13 +40,17 @@ public class Plugin : BasePlugin
     internal static bool Allowed()
     {
         if (!C.Enabled.Value) return false;
-        return !C.SoloOnly.Value || GmHooks.IsSolo();
+        if (!C.SoloOnly.Value) return true;
+        if (GmHooks.IsSolo()) return true;
+        // Private (code) matches are what the developer explicitly allows; public ones are locked
+        // out by SafeMode, so the only multiplayer we can be in here is one we entered privately.
+        return C.AllowPrivateMatches.Value && SafeMode.InPrivateSession;
     }
 }
 
 internal sealed class Cfg
 {
-    public readonly ConfigEntry<bool> Enabled, SoloOnly, SafeMode;
+    public readonly ConfigEntry<bool> Enabled, SoloOnly, SafeMode, AllowPrivateMatches;
     public readonly ConfigEntry<bool> HighDamage, FastRegen, LowCooldowns;
     public readonly ConfigEntry<bool> AllIronstrikes, DontSpawnIronstrikes;
     public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
@@ -66,8 +70,11 @@ internal sealed class Cfg
         Enabled  = f.Bind("01 General", "Enabled", true, "Master switch.");
         SoloOnly = f.Bind("01 General", "SoloOnly", true,
             "Only act when alone in the session. Leave this on.");
+        AllowPrivateMatches = f.Bind("01 General", "AllowPrivateMatches", true,
+            "Keep the trainer working in Private Match (code) sessions with friends.\n"
+            + "Public play is never allowed while SafeMode is on.");
         SafeMode = f.Bind("01 General", "SafeMode", true,
-            "Block public matchmaking entirely and refuse incoming connections while modded.\n"
+            "Lock Play and HOST (public matchmaking) while modded; Solo and Private Match stay.\n"
             + "The developer asked that cheats never reach public games; this enforces it.\n"
             + "Turn this off only if you are certain you are offline.");
 

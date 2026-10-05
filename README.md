@@ -176,9 +176,24 @@ There is a string in the game binary addressed to modders. Verbatim:
 So private games are fine and public lobbies are not. That is the whole rule, and this mod is built
 around it rather than around it being unenforceable.
 
-`SoloOnly` is on by default and gates every cheat behind
-`NetworkLifecycle.SpawnedPlayerCount <= 1`. Note that is the correct check and `NetworkIsRunning()`
-is not, because solo play still starts a Fusion Host session.
+The trainer works in **Solo** and in **Private Match** (code) sessions, and nowhere else. While
+it is loaded, the main menu's public entry points are greyed out and relabelled
+`LOCKED (MODDED)`:
+
+| Button | Method | |
+| --- | --- | --- |
+| Play (and the Archon-run variants) | `MainMenuUI.PressPlay` | quick match, public — **locked** |
+| HOST | `MainMenuUI.PressHost` | hosts a game strangers can join — **locked** |
+| Private Match | `MainMenuUI.PressPrivateMatch` | friends with a code — allowed |
+| Solo | `MainMenuUI.PressSolo` | offline — allowed |
+
+The matchmaking methods behind the public buttons (`StartMatchmaking`, `FindOrHostMatchmaking`)
+are blocked too, in case anything else reaches them. Incoming connections are refused unless you
+entered a private match, so friends can join a private game you host and nobody can join anything
+else. The join code is never written to the log.
+
+`SafeMode` controls the lock and `AllowPrivateMatches` controls the private-match exception; both
+default to on.
 
 It matters because the netcode cannot defend itself. Fusion Host mode makes one player's client
 authoritative for everyone, and of roughly 45 RPCs only 7 are authority-gated; damage magnitude is

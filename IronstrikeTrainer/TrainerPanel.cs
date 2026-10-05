@@ -44,6 +44,7 @@ internal static class TrainerPanel
         {
             if (panel == null) Build();
             if (menuButton == null && panel != null) AddMenuButton();
+            SafeMode.LockPublicButtons();
         }
         catch (Exception e)
         {
@@ -484,12 +485,34 @@ internal static class TrainerPanel
 
     // -------------------------------------------------------- main menu button
 
+    // Which button does what, by the method it is wired to rather than by its (localised) label.
+    static bool loggedButtons;
+
+    static void LogMainMenuButtons(MainMenuUI mm)
+    {
+        if (loggedButtons) return;
+        loggedButtons = true;
+        foreach (var b in mm.GetComponentsInChildren<Button>(true))
+        {
+            var methods = new List<string>();
+            for (int i = 0; i < b.onClick.GetPersistentEventCount(); i++)
+                methods.Add(b.onClick.GetPersistentMethodName(i));
+            var tmp = b.GetComponentInChildren<TextMeshProUGUI>(true);
+            var path = b.name;
+            for (var p = b.transform.parent; p != null && p != mm.transform; p = p.parent) path = p.name + "/" + path;
+            Plugin.Log.LogInfo($"menu button '{path}' label='{tmp?.text}' active={b.gameObject.activeInHierarchy} " +
+                               $"-> {(methods.Count > 0 ? string.Join(",", methods) : "<none>")}");
+        }
+    }
+
     static void AddMenuButton()
     {
         MainMenuUI mm = null;
         foreach (var m in Resources.FindObjectsOfTypeAll<MainMenuUI>())
             if (m != null && m.gameObject.scene.IsValid()) { mm = m; break; }
         if (mm == null) return;
+
+        LogMainMenuButtons(mm);
 
         Button options = null;
         foreach (var b in mm.GetComponentsInChildren<Button>(true))
