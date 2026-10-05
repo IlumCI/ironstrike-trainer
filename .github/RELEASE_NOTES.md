@@ -1,12 +1,21 @@
-**Verified loading in game.** BepInEx injects, the Harmony hook on `GM.Update` fires, and the cheat
-flags are confirmed written and read back from the live game. Opening the menu with F1 and the
-skill/weapon pickers are still unconfirmed by hand.
+A trainer for IRONSTRIKE that adds a **TRAINER** menu next to Options (or press **F1**): god mode,
+insta-kill, invisibility, movement and projectile multipliers, enemy friendly fire, and bot
+controls.
 
-Drop-in install: download the zip and extract `BepInEx/` over your IRONSTRIKE folder
-(the one containing `Ironstrike.exe`), or install it with r2modman / Gale.
+Works in **Solo** and **Private Match** games only. While it is loaded, Play and HOST (public
+matchmaking) are locked.
 
-Requires BepInEx 6 IL2CPP (`BepInExPack_IL2CPP` 6.0.755 or a newer bleeding-edge build).
-Before putting the headset on, set `Enabled = false` under `[Logging.Console]` in
-`BepInEx/config/BepInEx.cfg` — a console window stealing focus mid-session will wreck a run.
+### Install
 
-Open the dev menu with F1, then go to Trainer. Single-player only.
+1. Install **BepInEx 6 IL2CPP** — this exact file:
+   [BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip).
+   All six items in it go directly beside `Ironstrike.exe`. Launch the game once and let it finish
+   setting up.
+2. Extract this release's zip over the game folder (it contains `BepInEx/plugins/IronstrikeTrainer.dll`),
+   or install it with r2modman / Gale.
+3. Before using a headset, set `Enabled = false` under `[Logging.Console]` in
+   `BepInEx/config/BepInEx.cfg`.
+
+On Linux/Proton, add `WINEDLLOVERRIDES="winhttp=n,b"` to the game's launch options.
+
+Full instructions and troubleshooting are in the README.

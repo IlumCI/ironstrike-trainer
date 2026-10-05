@@ -61,7 +61,7 @@ if ($Package) {
         name           = 'IronstrikeTrainer'
         version_number = $ver
         website_url    = ''
-        description    = 'Unlocks the developer menu and adds a VR trainer submenu. Single-player only.'
+        description    = 'Adds a TRAINER menu next to Options. Solo and Private Match only; public matchmaking is locked while loaded.'
         dependencies   = @('BepInEx-BepInExPack_IL2CPP-6.0.755')
     } | ConvertTo-Json | Set-Content (Join-Path $stage 'manifest.json')
     Compress-Archive -Path "$stage\*" -DestinationPath $out -Force

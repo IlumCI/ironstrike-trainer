@@ -24,7 +24,7 @@ if [[ "$SRCVER" != "$VER" ]]; then
   exit 1
 fi
 
-DESC="Unlocks the developer menu and adds a VR-navigable trainer submenu: god mode, insta-kill, invisibility, movement and projectile multipliers, friendly fire, and skill/weapon pickers. Single-player only."
+DESC="Adds a TRAINER menu next to Options: god mode, insta-kill, invisibility, movement and projectile multipliers, enemy friendly fire and bot controls. Solo and Private Match only; public matchmaking is locked while loaded."
 
 rm -rf "$STAGE"; mkdir -p "$STAGE/BepInEx/plugins"
 cp "$DLL" "$STAGE/BepInEx/plugins/"

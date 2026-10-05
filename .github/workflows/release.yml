@@ -41,6 +41,6 @@ jobs:
           gh release create "${{ steps.t.outputs.tag }}" dist/*.zip \
             --title "${{ steps.t.outputs.tag }}" \
             --notes-file .github/RELEASE_NOTES.md \
-            --prerelease \
+            --latest \
             --repo "$GITHUB_REPOSITORY" || \
           gh release upload "${{ steps.t.outputs.tag }}" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
