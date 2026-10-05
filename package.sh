@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Package IronstrikeTrainer for distribution.
 #
-# Produces dist/IronstrikeTrainer-<version>.zip laid out so BOTH install paths work:
-#   * Thunderstore / r2modman / Gale  -> manifest.json + icon.png + README.md at zip root
-#   * manual install                  -> drag BepInEx/ over the game folder
+# Produces dist/IronstrikeTrainer-<version>.zip, laid out so both install paths work:
+#   Thunderstore / r2modman / Gale -> manifest.json + icon.png + README.md at the zip root
+#   manual                         -> drag BepInEx/ over the game folder
 #
-# BepInEx already defines the mods folder (BepInEx/plugins). We do not invent our own
-# loader or mods directory; there is nothing to gain from it.
+# BepInEx already defines the mods folder (BepInEx/plugins), so there is nothing to gain from
+# inventing our own. Stdlib only: this has to run on a bare CI runner.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -17,7 +17,7 @@ OUT="$HERE/dist"; STAGE="$OUT/stage"
 
 [[ -f "$DLL" ]] || { echo "ERROR: build first (./build.sh)" >&2; exit 1; }
 
-# Version lives in the csproj; Plugin.cs must agree or the in-game log lies.
+# The version lives in the csproj; Plugin.cs must agree or the in-game log lies about it.
 SRCVER="$(grep -oP 'Version\s*=\s*"\K[^"]+' "$HERE/IronstrikeTrainer/Plugin.cs" | head -1)"
 if [[ "$SRCVER" != "$VER" ]]; then
   echo "ERROR: version drift -- csproj=$VER but Plugin.cs Id.Version=$SRCVER" >&2
@@ -31,8 +31,8 @@ cp "$DLL" "$STAGE/BepInEx/plugins/"
 cp "$HERE/README.md" "$STAGE/README.md"
 cp "$HERE/icon.png"  "$STAGE/icon.png"
 
-python3 - "$STAGE" "$VER" "$DESC" <<'PY'
-import json, sys, re, os
+python3 - "$STAGE" "$VER" "$DESC" <<'PYEOF'
+import json, os, re, sys
 stage, ver, desc = sys.argv[1], sys.argv[2], sys.argv[3]
 m = {
     "name": "IronstrikeTrainer",
@@ -41,54 +41,60 @@ m = {
     "description": desc,
     "dependencies": ["BepInEx-BepInExPack_IL2CPP-6.0.755"],
 }
-# Validate against Thunderstore's documented constraints before writing.
 errs = []
 if not re.fullmatch(r"[A-Za-z0-9_]+", m["name"]):
     errs.append("name must be alphanumeric/underscore only")
 if not re.fullmatch(r"\d+\.\d+\.\d+", m["version_number"]):
     errs.append("version_number must be major.minor.patch")
 if len(m["description"]) > 250:
-    errs.append(f"description is {len(m['description'])} chars, max 250")
+    errs.append("description is %d chars, max 250" % len(m["description"]))
 for d in m["dependencies"]:
     if not re.fullmatch(r"[A-Za-z0-9_]+-[A-Za-z0-9_]+-\d+\.\d+\.\d+", d):
-        errs.append(f"bad dependency string: {d}")
+        errs.append("bad dependency string: " + d)
 if errs:
-    print("manifest validation FAILED:"); [print("  -", e) for e in errs]; sys.exit(1)
+    print("manifest validation FAILED:")
+    for e in errs:
+        print("  -", e)
+    sys.exit(1)
 open(os.path.join(stage, "manifest.json"), "w").write(json.dumps(m, indent=2) + "\n")
-print(f"manifest.json ok (description {len(m['description'])}/250 chars)")
-PY
+print("manifest.json ok (description %d/250 chars)" % len(m["description"]))
+PYEOF
 
-# Icon must be exactly 256x256 PNG.
-python3 - "$STAGE/icon.png" <<'PY'
-import sys
-from PIL import Image
-im = Image.open(sys.argv[1])
-assert im.format == "PNG", f"icon must be PNG, got {im.format}"
-assert im.size == (256, 256), f"icon must be 256x256, got {im.size}"
-print(f"icon.png ok ({im.format} {im.size[0]}x{im.size[1]})")
-PY
+# Icon must be a 256x256 PNG. Read the IHDR by hand so this needs no imaging library.
+python3 - "$STAGE/icon.png" <<'PYEOF'
+import struct, sys
+d = open(sys.argv[1], "rb").read(24)
+if d[:8] != b"\x89PNG\r\n\x1a\n" or d[12:16] != b"IHDR":
+    sys.exit("icon.png is not a PNG")
+w, h = struct.unpack(">II", d[16:24])
+if (w, h) != (256, 256):
+    sys.exit("icon must be 256x256, got %dx%d" % (w, h))
+print("icon.png ok (PNG %dx%d)" % (w, h))
+PYEOF
 
 mkdir -p "$OUT"
 ZIP="$OUT/IronstrikeTrainer-$VER.zip"
 rm -f "$ZIP"
-( cd "$STAGE" && python3 -c "
-import zipfile,os,sys
-z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED)
-for root,_,files in os.walk('.'):
+( cd "$STAGE" && python3 - "$ZIP" <<'PYEOF'
+import os, sys, zipfile
+z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED)
+for root, _, files in os.walk("."):
     for f in sorted(files):
-        p=os.path.join(root,f)
-        z.write(p, os.path.relpath(p,'.'))
+        p = os.path.join(root, f)
+        z.write(p, os.path.relpath(p, "."))
 z.close()
-" "$ZIP" )
+PYEOF
+)
 rm -rf "$STAGE"
 
 echo
 echo "==> $ZIP"
-python3 -c "
-import zipfile,sys
-z=zipfile.ZipFile(sys.argv[1])
-for i in z.infolist(): print(f'    {i.file_size:>8}  {i.filename}')
-print('    bad zip!' if z.testzip() else '    zip integrity OK')
-" "$ZIP"
+python3 - "$ZIP" <<'PYEOF'
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+for i in z.infolist():
+    print("    %8d  %s" % (i.file_size, i.filename))
+print("    bad zip!" if z.testzip() else "    zip integrity OK")
+PYEOF
 echo
 sha256sum "$ZIP" | sed 's/^/    /'
