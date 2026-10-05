@@ -47,6 +47,7 @@ internal static class Cheats
         ProjectileRange = c.ProjectileRange.Value;
 
         UpdateInvisibility();
+        UpdateTeamKill();
     }
 
     static bool Same(float a, float b) => Mathf.Abs(a - b) < 0.0001f;
@@ -62,7 +63,6 @@ internal static class Cheats
     internal static Fighter Local => GM.instance?.LocalPlayerFighter;
 
     static bool IsLocal(Fighter f) => f != null && Local != null && f.Pointer == Local.Pointer;
-    static bool PlayerSide(Faction f) => f == Faction.LocalPlayer || f == Faction.Allies;
     static bool Off(float f) => Mathf.Abs(f - 1f) < 0.001f;
 
     // IL2CPP strips method bodies, so whether the game reads these stats as multipliers or as
@@ -133,22 +133,6 @@ internal static class Cheats
             if (!IsLocal(hitInfo.attackingFighter)) return;   // our hits only
             if (IsLocal(hitInfo.hitFighter)) return;          // never ourselves
             __result = 999999f;
-        }
-
-        // isSameTeam is also what the AI consults to pick targets, so enemies will actively fight
-        // each other rather than only clipping each other by accident.
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(GM), nameof(GM.isSameTeam))]
-        static void SameTeam(Faction f1, Faction f2, ref bool __result)
-        {
-            FirstHit("GM.isSameTeam");
-            if (!__result || !Plugin.Allowed()) return;
-            if (f1 == Faction.Uninitialized || f2 == Faction.Uninitialized) return;
-
-            if (TeamKillEnemies && f1 == Faction.EnemyBots && f2 == Faction.EnemyBots)
-                __result = false;
-            else if (TeamKillPlayers && PlayerSide(f1) && PlayerSide(f2))
-                __result = false;
         }
 
         static void Tune(Projectile p, Fighter parent)
@@ -236,6 +220,99 @@ internal static class Cheats
                 Plugin.Log.LogWarning($"invisibility deferred ({e.GetType().Name}), retrying in 5s");
             else if (invisFailures == 4)
                 Plugin.Log.LogWarning("invisibility still failing; suppressing further warnings");
+        }
+    }
+
+    // ---- Team Kill ----------------------------------------------------------------------------
+    // GM.isSameTeam is inlined into every caller, so it cannot be patched -- but the callers still
+    // read each fighter's faction field, and that we can change. Half the bots are moved to a faction
+    // that is hostile to both the enemies and the player: their hits on the other half then register
+    // through the game's own check, and the player can still hit everything.
+    //
+    // Which faction that is comes from calling the real isSameTeam (it still exists as a function;
+    // only its call sites were inlined) rather than guessing at its body.
+    static bool teamsProbed;
+    static Faction hostile = Faction.EnemyBots;
+    static readonly Dictionary<IntPtr, Faction> originalFaction = new();
+    static readonly Dictionary<IntPtr, Faction> assigned = new();
+    static int assignCounter;
+    static float nextTeamPass;
+
+    static void ProbeTeams()
+    {
+        if (teamsProbed) return;
+        teamsProbed = true;
+        var all = new[] { Faction.Uninitialized, Faction.LocalPlayer, Faction.Allies, Faction.EnemyBots };
+        var sb = new System.Text.StringBuilder("isSameTeam truth table (U=Uninit P=LocalPlayer A=Allies E=EnemyBots):");
+        sb.Append("\n      U P A E");
+        foreach (var a in all)
+        {
+            sb.Append($"\n    {a.ToString()[0]} ");
+            foreach (var b in all) sb.Append(GM.isSameTeam(a, b) ? " Y" : " .");
+        }
+        Plugin.Log.LogInfo(sb.ToString());
+
+        foreach (var f in all)
+            if (f != Faction.EnemyBots && !GM.isSameTeam(f, Faction.EnemyBots)
+                && !GM.isSameTeam(f, Faction.LocalPlayer))
+            { hostile = f; break; }
+
+        if (hostile == Faction.EnemyBots)
+            Plugin.Log.LogWarning("no faction is hostile to both sides; Team Kill cannot work without one");
+        else
+            Plugin.Log.LogInfo($"Team Kill will split bots between EnemyBots and {hostile}");
+    }
+
+    static void UpdateTeamKill()
+    {
+        float now = Time.realtimeSinceStartup;
+        if (now < nextTeamPass) return;
+        nextTeamPass = now + 1f;
+
+        try
+        {
+            var bots = AIHivemind.instance?.bots;
+            bool on = TeamKillEnemies && Plugin.Allowed();
+
+            if (!on)
+            {
+                if (originalFaction.Count == 0) return;
+                if (bots != null)
+                    for (int i = 0; i < bots.Count; i++)
+                    {
+                        var f = bots[i]?.nbfd?.fighter;
+                        if (f != null && originalFaction.TryGetValue(f.Pointer, out var orig)) f.SetFaction(orig);
+                    }
+                originalFaction.Clear();
+                assigned.Clear();
+                Plugin.Log.LogInfo("Team Kill off: bot factions restored");
+                return;
+            }
+
+            ProbeTeams();
+            if (hostile == Faction.EnemyBots || bots == null) return;
+
+            for (int i = 0; i < bots.Count; i++)
+            {
+                var f = bots[i]?.nbfd?.fighter;
+                if (f == null) continue;
+                var key = f.Pointer;
+
+                // Decided once per bot, so nobody switches sides mid-fight as the list reshuffles.
+                if (!assigned.TryGetValue(key, out var want))
+                {
+                    want = (assignCounter++ % 2 == 0) ? Faction.EnemyBots : hostile;
+                    assigned[key] = want;
+                    originalFaction[key] = f.faction;
+                }
+                if (f.faction != want) f.SetFaction(want);
+            }
+            FirstHit($"Team Kill split ({hostile})");
+        }
+        catch (Exception e)
+        {
+            nextTeamPass = now + 5f;
+            Plugin.Log.LogWarning($"team kill pass failed: {e.Message}");
         }
     }
 

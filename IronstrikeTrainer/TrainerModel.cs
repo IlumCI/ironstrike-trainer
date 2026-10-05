@@ -81,17 +81,17 @@ internal static class TrainerModel
                 Cycle ("Weapons", "Projectile Speed", c.ProjectileSpeed),
                 Cycle ("Weapons", "Projectile Range", c.ProjectileRange),
 
-                // Both of these are inert right now: GM.isSameTeam is inlined by IL2CPP and the
-                // patch never fires. Left visible so the gap is obvious rather than silent.
-                Toggle("Team Kill (not working)", "Enemies hurt each other", c.TeamKillEnemies),
-                Toggle("Team Kill (not working)", "Player side hurts each other", c.TeamKillPlayers),
+                Toggle("Team Kill", "Enemies hurt each other", c.TeamKillEnemies),
+                // Needs other players, and the trainer is solo-only, so there is nothing for it to act
+                // on yet. Kept visible and labelled rather than silently missing.
+                Toggle("Team Kill", "Players hurt each other (co-op, not yet)", c.TeamKillPlayers),
 
                 Toggle("Visual", "Hide Healthbars", c.NoHealthbars),
                 Toggle("Visual", "Hide Damage Numbers", c.NoDamageNumbers),
                 Toggle("Visual", "Hide Status Effects", c.NoStatusEffects),
 
                 Act   ("Bots", "Hurt All Bots", () => GmHooks.Bots(true)),
-                Act   ("Bots", "Despawn All Bots", () => GmHooks.Bots(false)),
+                Act   ("Bots", "Despawn All Bots", GmHooks.DespawnBots),
                 Act   ("Bots", "Spawn Dummy", () => GM.instance?.SpawnDummyPlayer()),
 
                 Act   ("Reset", "Reset All To Vanilla", ResetAll),

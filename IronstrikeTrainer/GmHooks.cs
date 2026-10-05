@@ -143,7 +143,7 @@ internal static class GmHooks
             else if (Down(2)) Apply("F2");
             else if (Down(3)) Revive();
             else if (Down(4)) Bots(true);
-            else if (Down(5)) Bots(false);
+            else if (Down(5)) DespawnBots();
         }
         catch (Exception e)
         {
@@ -200,6 +200,29 @@ internal static class GmHooks
         var gm = GM.instance;
         var f = gm?.LocalPlayerFighter;
         if (f != null) gm.RevivePlayerFighter(f);
+    }
+
+    // GM.DespawnAllBots() is a dev helper that does nothing in the retail scenes, so go through the
+    // path the game itself uses: every registered AIBot's driver into NetworkGameMaster.DespawnBot.
+    // Host-only in the game, which is fine: in solo play you are the host.
+    internal static void DespawnBots()
+    {
+        if (!Plugin.Allowed()) return;
+        var bots = AIHivemind.instance?.bots;
+        var ngm = GM.instance?.NetGameMaster;
+        if (bots == null || ngm == null) { Plugin.Log.LogInfo("despawn: no bots or no game master"); return; }
+
+        // Snapshot first: DespawnBot deregisters, which mutates the list we are walking.
+        var drivers = new System.Collections.Generic.List<NetworkBotFighterDriver>();
+        for (int i = 0; i < bots.Count; i++) { var d = bots[i]?.nbfd; if (d != null) drivers.Add(d); }
+
+        int n = 0;
+        foreach (var d in drivers)
+        {
+            try { ngm.DespawnBot(d); n++; }
+            catch (Exception e) { Plugin.Log.LogWarning($"despawn failed for one bot: {e.Message}"); }
+        }
+        Plugin.Log.LogInfo($"despawned {n}/{drivers.Count} bots");
     }
 
     internal static void Bots(bool hurt)
