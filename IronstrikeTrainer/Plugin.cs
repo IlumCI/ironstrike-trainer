@@ -51,6 +51,13 @@ internal sealed class Cfg
     public readonly ConfigEntry<bool> AllIronstrikes, DontSpawnIronstrikes;
     public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
     public readonly ConfigEntry<bool> UnlockDevMenu, EnableHotkeys;
+
+    // Everything below was previously reachable only from the dev menu, which the game refuses to
+    // open. Bound to config so the whole feature set is usable while the custom UI is built.
+    public readonly ConfigEntry<bool> GodMode, InstaKill, Invisible;
+    public readonly ConfigEntry<bool> TeamKillEnemies, TeamKillPlayers;
+    public readonly ConfigEntry<float> MoveSpeed, JumpHeight, MeleeReach;
+    public readonly ConfigEntry<float> IronstrikeRate, ProjectileSpeed, ProjectileRange;
     public readonly ConfigEntry<float> AutoOpenAfter;
     public readonly ConfigEntry<bool> WatchTamper, ProbeOptions;
 
@@ -74,6 +81,22 @@ internal sealed class Cfg
         NoDamageNumbers = f.Bind("03 Visual", "CheatNoDamageNumbers", false);
         NoStatusEffects = f.Bind("03 Visual", "CheatNoStatusEffecs", false,
             "Typo is the dev's; kept to match the field.");
+
+        GodMode   = f.Bind("06 Survival", "GodMode", false, "Pins Fighter.invulnerable.");
+        Invisible = f.Bind("06 Survival", "Invisible", false,
+            "Enemies stop targeting you. Same lever Smoke Bombs and the Invisibility spell use.");
+        InstaKill = f.Bind("07 Offense", "InstaKill", false, "Only applies to damage you deal.");
+        TeamKillEnemies = f.Bind("08 TeamKill", "EnemiesHurtEachOther", false,
+            "Also makes enemy AI deliberately target each other, not just clip each other.");
+        TeamKillPlayers = f.Bind("08 TeamKill", "PlayerSideHurtsEachOther", false);
+
+        MoveSpeed       = f.Bind("09 Multipliers", "MoveSpeed", 1f, "1 = vanilla.");
+        JumpHeight      = f.Bind("09 Multipliers", "JumpHeight", 1f);
+        MeleeReach      = f.Bind("09 Multipliers", "MeleeReach", 1f,
+            "Scales the weapon transform; reach is collider geometry, so the weapon looks bigger.");
+        IronstrikeRate  = f.Bind("09 Multipliers", "IronstrikeRate", 1f);
+        ProjectileSpeed = f.Bind("09 Multipliers", "ProjectileSpeed", 1f);
+        ProjectileRange = f.Bind("09 Multipliers", "ProjectileRange", 1f);
 
         UnlockDevMenu = f.Bind("04 DevMenu", "UnlockDevMenu", true);
         ProbeOptions = f.Bind("05 Debug", "ProbeOptionsMenu", false,

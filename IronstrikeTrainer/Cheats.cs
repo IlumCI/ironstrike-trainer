@@ -24,6 +24,39 @@ internal static class Cheats
         return Steps[0];
     }
 
+    // Config is the control surface until the custom UI exists. Menu code writes the same fields.
+    public static void SyncFromConfig()
+    {
+        var c = Plugin.C;
+        GodMode         = c.GodMode.Value;
+        InstaKill       = c.InstaKill.Value;
+        Invisible       = c.Invisible.Value;
+        TeamKillEnemies = c.TeamKillEnemies.Value;
+        TeamKillPlayers = c.TeamKillPlayers.Value;
+
+        if (!Same(MoveSpeed, c.MoveSpeed.Value) || !Same(MeleeReach, c.MeleeReach.Value)
+         || !Same(IronstrikeRate, c.IronstrikeRate.Value))
+        {
+            MoveSpeed      = c.MoveSpeed.Value;
+            MeleeReach     = c.MeleeReach.Value;
+            IronstrikeRate = c.IronstrikeRate.Value;
+            ApplyWeaponTweaks();          // reach and ironstrike cadence live on the weapon
+        }
+        JumpHeight      = c.JumpHeight.Value;
+        ProjectileSpeed = c.ProjectileSpeed.Value;
+        ProjectileRange = c.ProjectileRange.Value;
+    }
+
+    static bool Same(float a, float b) => Mathf.Abs(a - b) < 0.0001f;
+
+    // Each patch announces its first real hit. Under IL2CPP an inlined target applies cleanly and
+    // never fires -- GM.InitScene does exactly that -- so "it compiled" proves nothing.
+    static readonly System.Collections.Generic.HashSet<string> fired = new();
+    internal static void FirstHit(string what)
+    {
+        if (fired.Add(what)) Plugin.Log.LogInfo($"PATCH LIVE: {what}");
+    }
+
     internal static Fighter Local => GM.instance?.LocalPlayerFighter;
 
     static bool IsLocal(Fighter f) => f != null && Local != null && f.Pointer == Local.Pointer;
@@ -61,6 +94,8 @@ internal static class Cheats
         {
             if (!Plugin.Allowed() || !IsLocal(__instance)) return;
 
+            FirstHit($"Fighter.CalcSkillAndStatusEffectValue({type})");
+
             switch (type)
             {
                 case SkillCalcType.MoveSpeed:
@@ -83,6 +118,7 @@ internal static class Cheats
         {
             if (!Invisible || type != SkillFlagType.Targetable) return;
             if (!Plugin.Allowed() || !IsLocal(__instance)) return;
+            FirstHit("Fighter.CalcSkillAndStatusEffectFlag(Targetable)");
             __result = false;
         }
 
@@ -90,6 +126,7 @@ internal static class Cheats
         [HarmonyPatch(typeof(Fighter), nameof(Fighter.CalculateDamage))]
         static void Damage(HitInfo hitInfo, ref float __result)
         {
+            FirstHit("Fighter.CalculateDamage");
             if (!InstaKill || hitInfo == null || !Plugin.Allowed()) return;
             if (!IsLocal(hitInfo.attackingFighter)) return;   // our hits only
             if (IsLocal(hitInfo.hitFighter)) return;          // never ourselves
@@ -102,6 +139,7 @@ internal static class Cheats
         [HarmonyPatch(typeof(GM), nameof(GM.isSameTeam))]
         static void SameTeam(Faction f1, Faction f2, ref bool __result)
         {
+            FirstHit("GM.isSameTeam");
             if (!__result || !Plugin.Allowed()) return;
             if (f1 == Faction.Uninitialized || f2 == Faction.Uninitialized) return;
 
@@ -113,6 +151,7 @@ internal static class Cheats
 
         static void Tune(Projectile p, Fighter parent)
         {
+            FirstHit("Projectile.SetTypes");
             if (p == null || !Plugin.Allowed() || !IsLocal(parent)) return;
 
             if (!Off(ProjectileSpeed)) p.speed *= ProjectileSpeed;

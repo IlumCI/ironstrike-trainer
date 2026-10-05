@@ -45,6 +45,7 @@ internal static class GmHooks
 
         // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
         SafeMode.Enforce();
+        Cheats.SyncFromConfig();
         Cheats.Patches.PinGodMode();
         EnsureFlags();
         TamperWatch.Tick();
