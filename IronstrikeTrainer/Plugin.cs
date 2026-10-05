@@ -30,7 +30,6 @@ public class Plugin : BasePlugin
         h.PatchAll(typeof(Cheats.Patches));
         h.PatchAll(typeof(OptionsProbe));
         h.PatchAll(typeof(SafeMode));
-        h.PatchAll(typeof(TrainerSettingsUI));
 
         Log.LogInfo($"{Id.Name} v{Id.Version} loaded. Waiting on GM.InitScene / GM.Update.");
     }

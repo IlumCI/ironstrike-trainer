@@ -1,6 +1,5 @@
 using System;
 using HarmonyLib;
-using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Assets.Scripts.Utilities;
 using UnityEngine;
 
@@ -26,7 +25,6 @@ internal static class GmHooks
     static void InitScene()
     {
         if (!sawInit) { sawInit = true; Plugin.Log.LogInfo("HOOK CONFIRMED: GM.InitScene fired."); }
-        menuGrafted = false;
         Apply("InitScene");
     }
 
@@ -49,6 +47,7 @@ internal static class GmHooks
         Cheats.Patches.PinGodMode();
         EnsureFlags();
         TamperWatch.Tick();
+        TrainerPanel.Tick();
         MaybeAutoOpen();
         if (Plugin.C.EnableHotkeys.Value && mode != InputMode.None) Hotkeys();
     }
@@ -68,29 +67,8 @@ internal static class GmHooks
 
         if (Plugin.C.ProbeOptions.Value) { OptionsProbe.Run(); return; }
 
-        Plugin.Log.LogInfo($"auto-opening dev menu after {after}s");
-        ToggleDevMenu();
-    }
-
-    // Report where the menu actually lives, because field names alone do not tell you whether it
-    // renders on a world-space canvas, on the HUD, or parented to a controller.
-    static void LogWhere(ILDevMenuManager dm)
-    {
-        if (loggedWhere) return;
-        loggedWhere = true;
-        try
-        {
-            var t = dm.transform;
-            var path = t.name;
-            for (var p = t.parent; p != null; p = p.parent) path = p.name + "/" + path;
-
-            var go = dm.gameObject;
-            Plugin.Log.LogInfo($"dev menu object: {path}");
-            Plugin.Log.LogInfo($"  activeInHierarchy={go.activeInHierarchy} " +
-                               $"worldPos={t.position} lossyScale={t.lossyScale} enabled={dm.Enabled()}");
-
-        }
-        catch (Exception e) { Plugin.Log.LogWarning($"LogWhere failed: {e.Message}"); }
+        Plugin.Log.LogInfo($"auto-opening trainer panel after {after}s");
+        TrainerPanel.Toggle(null);
     }
 
     internal static bool IsSolo()
@@ -161,7 +139,7 @@ internal static class GmHooks
 
         try
         {
-            if (Down(1)) ToggleDevMenu();
+            if (Down(1)) TrainerPanel.Toggle(null);
             else if (Down(2)) Apply("F2");
             else if (Down(3)) Revive();
             else if (Down(4)) Bots(true);
@@ -214,41 +192,6 @@ internal static class GmHooks
             4 => kb.f4Key, 5 => kb.f5Key, _ => null,
         };
         return k != null && k.wasPressedThisFrame;
-    }
-
-    internal static void ToggleDevMenu()
-    {
-        if (!Plugin.Allowed()) { Plugin.Log.LogInfo("dev menu blocked: not solo"); return; }
-
-        var gm = GM.instance;
-        var dm = gm?.ILDevMenuManager;
-        if (dm == null) { Plugin.Log.LogWarning("no ILDevMenuManager yet"); return; }
-
-        gm.AllowDebugMenu = true;
-
-        if (!menuGrafted || dm.rootMenuItem == null)
-        {
-            var root = gm.CreateDevMenu();
-            if (root == null) { Plugin.Log.LogWarning("CreateDevMenu returned null"); return; }
-
-            root.children = Append(root.children, TrainerMenu.Build());
-            dm.Init(root);
-            menuGrafted = true;
-        }
-
-        dm.Toggle();
-        LogWhere(dm);
-        Plugin.Log.LogInfo($"dev menu enabled={dm.Enabled()} root={(dm.rootMenuItem != null ? dm.rootMenuItem.text : "<null>")}");
-    }
-
-    // MenuItem.children is a fixed-size Il2Cpp array, so appending means rebuilding it.
-    static Il2CppReferenceArray<MenuItem> Append(Il2CppReferenceArray<MenuItem> src, MenuItem extra)
-    {
-        int n = src?.Length ?? 0;
-        var grown = new Il2CppReferenceArray<MenuItem>(n + 1);
-        for (int i = 0; i < n; i++) grown[i] = src[i];
-        grown[n] = extra;
-        return grown;
     }
 
     internal static void Revive()
