@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
@@ -25,6 +26,7 @@ internal static class TrainerPanel
     static GameObject rowSource, titleSource, stepperSource, actionSource;
     static float colW;            // width of the left-hand control column
     static GameObject menuButton;
+    static TextMeshProUGUI trainerLabel;
     static float nextTry;
 
     static readonly List<object> alive = new();     // Il2Cpp delegates die with their managed source
@@ -44,6 +46,7 @@ internal static class TrainerPanel
         {
             if (panel == null) Build();
             if (menuButton == null && panel != null) AddMenuButton();
+            if (trainerLabel != null && trainerLabel.text != "TRAINER") trainerLabel.text = "TRAINER";
             SafeMode.LockPublicButtons();
         }
         catch (Exception e)
@@ -514,42 +517,64 @@ internal static class TrainerPanel
 
         LogMainMenuButtons(mm);
 
-        Button options = null;
-        foreach (var b in mm.GetComponentsInChildren<Button>(true))
+        Button options = Wired(mm, "PressOptions", false);
+        Button host = Wired(mm, "PressHost", true) ?? Wired(mm, "PressHost", false);
+        if (options == null || host == null)
         {
-            for (int i = 0; i < b.onClick.GetPersistentEventCount(); i++)
-                if (b.onClick.GetPersistentMethodName(i) == "PressOptions") { options = b; break; }
-            if (options != null) break;
-        }
-        if (options == null)
-        {
-            Plugin.Log.LogWarning("no button wired to MainMenuUI.PressOptions; F1 still opens the trainer");
+            Plugin.Log.LogWarning("could not find the Options card or a HOST pill; F1 still opens the trainer");
             menuButton = new GameObject("TrainerButtonUnavailable");   // stop retrying
             return;
         }
 
-        var go = UnityEngine.Object.Instantiate(options.gameObject, options.transform.parent);
+        // The menu is a grid of cards with no free cell, so TRAINER is not a card. It is a copy of
+        // the small HOST pill from the Play card, placed in the same corner of the Options card --
+        // the game's own pattern for a secondary action on a card.
+        var go = UnityEngine.Object.Instantiate(host.gameObject, options.transform);
         go.name = "TrainerButton";
-        go.transform.SetSiblingIndex(options.transform.GetSiblingIndex() + 1);
         StripBehaviour(go);
-        foreach (var t in go.GetComponentsInChildren<TextMeshProUGUI>(true)) t.text = "TRAINER";
 
-        // If no layout group places it, put it directly under Options instead of on top of it.
-        var parent = options.transform.parent;
-        bool laidOut = parent.GetComponent<LayoutGroup>() != null;
-        if (!laidOut)
-        {
-            var src = options.GetComponent<RectTransform>();
-            var dst = go.GetComponent<RectTransform>();
-            dst.anchoredPosition = src.anchoredPosition - new Vector2(0f, src.rect.height * 1.15f);
-        }
+        // Undo anything SafeMode had already done to the HOST pill we copied.
+        var cg = go.GetComponent<CanvasGroup>();
+        if (cg != null) { cg.alpha = 1f; cg.interactable = true; cg.blocksRaycasts = true; }
+        var btn = go.GetComponent<Button>();
+        btn.interactable = true;
+
+        CopyCornerInset(host.GetComponent<RectTransform>(), host.transform.parent.GetComponent<RectTransform>(),
+                        go.GetComponent<RectTransform>(), options.GetComponent<RectTransform>());
+
+        trainerLabel = go.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (trainerLabel != null) Fit(trainerLabel);
 
         var canvas = mm.GetComponentInChildren<Canvas>(true);
         var anchor = canvas != null ? canvas.transform : mm.transform;
-        Bind(go.GetComponent<Button>(), () => Toggle(anchor));
+        Bind(btn, () => Toggle(anchor));
 
         menuButton = go;
-        Plugin.Log.LogMessage($"main menu: TRAINER button added next to '{options.name}' " +
-                              $"(parent '{parent.name}', layout group: {laidOut})");
+        Plugin.Log.LogMessage("main menu: TRAINER pill added to the Options card");
+    }
+
+    static Button Wired(MainMenuUI mm, string method, bool visibleOnly)
+    {
+        foreach (var b in mm.GetComponentsInChildren<Button>(true))
+        {
+            if (visibleOnly && !b.gameObject.activeInHierarchy) continue;
+            for (int i = 0; i < b.onClick.GetPersistentEventCount(); i++)
+                if (b.onClick.GetPersistentMethodName(i) == method) return b;
+        }
+        return null;
+    }
+
+    // Give `dst` the same inset from its card's top-right corner that `src` has in its own card,
+    // measured in world space so it does not matter how the HOST pill was anchored.
+    static void CopyCornerInset(RectTransform src, RectTransform srcCard, RectTransform dst, RectTransform dstCard)
+    {
+        var a = new Il2CppStructArray<Vector3>(4); src.GetWorldCorners(a);
+        var c = new Il2CppStructArray<Vector3>(4); srcCard.GetWorldCorners(c);
+        Vector3 inset = srcCard.InverseTransformPoint(a[2]) - srcCard.InverseTransformPoint(c[2]);   // 2 = top-right
+
+        dst.anchorMin = dst.anchorMax = new Vector2(1f, 1f);
+        dst.pivot = new Vector2(1f, 1f);
+        dst.sizeDelta = src.rect.size;
+        dst.anchoredPosition = new Vector2(inset.x, inset.y);
     }
 }

@@ -131,26 +131,61 @@ internal static class SafeMode
         foreach (var b in mm.GetComponentsInChildren<Button>(true))
         {
             if (!IsPublic(b)) continue;
-            if (b.interactable != locked && Mathf.Approximately(Alpha(b), locked ? LockedAlpha : 1f)) continue;
-
-            b.interactable = !locked;
-            SetAlpha(b, locked ? LockedAlpha : 1f);
-            changed++;
-
-            var label = b.GetComponentInChildren<TextMeshProUGUI>(true);
-            if (label == null) continue;
-            if (locked)
+            if (!(b.interactable != locked && Mathf.Approximately(Alpha(b), locked ? LockedAlpha : 1f)))
             {
-                // The label is localised; strip that or I2 puts "Play" straight back.
-                foreach (var c in label.GetComponents<Component>())
-                    if (c != null && c.GetIl2CppType().Name == "Localize") UnityEngine.Object.Destroy(c);
-                if (!originalLabel.ContainsKey(label.Pointer)) originalLabel[label.Pointer] = label.text;
-                label.text = "LOCKED (MODDED)";
+                b.interactable = !locked;
+                SetAlpha(b, locked ? LockedAlpha : 1f);
+                changed++;
             }
-            else if (originalLabel.TryGetValue(label.Pointer, out var orig))
-                label.text = orig;
+            Relabel(b, locked);     // every pass, so I2 localisation never wins
         }
         if (changed > 0) Plugin.Log.LogInfo($"{(locked ? "locked" : "unlocked")} {changed} public play button(s)");
+    }
+
+    // A main-menu card has a big title and a small description; the HOST pill has one short label.
+    // Keep the card's title (PLAY stays PLAY, greyed) and say why in the description. Replacing the
+    // title with a long string overflowed the card's huge font.
+    static void Relabel(Button b, bool locked)
+    {
+        var own = OwnLabels(b);
+        if (own.Count == 0) return;
+        foreach (var t in own)
+            if (!originalLabel.ContainsKey(t.Pointer)) originalLabel[t.Pointer] = t.text;
+
+        TextMeshProUGUI target = own[0];
+        foreach (var t in own)
+            if (originalLabel[t.Pointer].Length > originalLabel[target.Pointer].Length) target = t;
+        string text = own.Count == 1 ? "LOCKED" : "Locked while modded";
+
+        if (locked)
+        {
+            foreach (var c in target.GetComponents<Component>())
+                if (c != null && c.GetIl2CppType().Name == "Localize") UnityEngine.Object.Destroy(c);
+            if (target.text != text)
+            {
+                target.text = text;
+                target.enableAutoSizing = true;
+                target.fontSizeMin = target.fontSize * 0.5f;
+                target.fontSizeMax = target.fontSize;
+            }
+        }
+        else if (target.text != originalLabel[target.Pointer])
+            target.text = originalLabel[target.Pointer];
+    }
+
+    // Labels belonging to this button, not to a button nested inside it (Play contains HOST).
+    static List<TextMeshProUGUI> OwnLabels(Button b)
+    {
+        var list = new List<TextMeshProUGUI>();
+        foreach (var t in b.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            // Walked by hand: the GetComponentInParent<T>(bool) overload fails an Il2CppInterop
+            // generic constraint check at runtime.
+            Button owner = null;
+            for (var p = t.transform; p != null && owner == null; p = p.parent) owner = p.GetComponent<Button>();
+            if (owner != null && owner.Pointer == b.Pointer) list.Add(t);
+        }
+        return list;
     }
 
     static bool IsPublic(Button b)
