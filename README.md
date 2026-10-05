@@ -1,213 +1,159 @@
-# IRONSTRIKE Trainer
+# Ironstrike Trainer
 
-A BepInEx 6 (IL2CPP) plugin for **IRONSTRIKE** (Steam appid 3233230) that unlocks the
-developer menu and cheat flags the dev already shipped in the retail build.
+A cheat menu for [IRONSTRIKE](https://store.steampowered.com/app/3233230/IRONSTRIKE/), built as a
+BepInEx 6 IL2CPP plugin.
 
-As far as I can tell this is the **first mod for the game** — no Thunderstore community, no
-GitHub results, no Nexus page.
+The game ships with its developer menu still in it. This unlocks that menu and adds a Trainer
+submenu to it, navigable from the right controller in VR.
 
-> **Single-player only, by design.** See [Scope](#scope).
+Single-player only. See [Scope](#scope).
 
-## What it does
+## Install
 
-IRONSTRIKE's god-object is a `MonoBehaviour` called `GM` (global namespace). It carries the dev's
-own cheat flags as `public static` fields and the dev menu builders as public methods. The mod
-reaches those, then grafts a **Trainer** submenu onto the dev menu's own `MenuItem` tree — so you
-get controller-driven VR navigation for free and no new canvas code.
+Grab the zip from [Releases](../../releases) and extract `BepInEx/` over your game folder, or
+install it through r2modman / Gale.
 
-```
-Dev Menu
-└── Trainer
-    ├── Survival      [x] God Mode · [x] Invisible · [x] Fast Regen · Revive Me
-    ├── Offense       [x] Insta-Kill · [x] High Damage · [x] Low Cooldowns
-    │                 [x] All Ironstrikes · Ironstrike Rate  < 2x >
-    ├── Movement      Move Speed  < 2x > · Jump Height  < 2x >
-    ├── Weapons       Melee Reach  < 2x > · Projectile Speed  < 2x > · Projectile Range  < 2x >
-    ├── Team Kill     [x] Enemies hurt each other · [x] Player side hurts each other
-    ├── Visual        [x] Hide Healthbars · [x] Hide Damage Numbers · [x] Hide Status Effects
-    ├── Bots          Hurt All Bots · Despawn All Bots · Spawn Dummy
-    ├── Give Skill...        every skill for your class, at max/enhanced level
-    ├── Give Weapon Set...   grouped Legendary / Rare / Common, filtered to your class
-    └── Reset All
+You need BepInEx 6 IL2CPP first — `BepInExPack_IL2CPP` 6.0.755, or a bleeding-edge build from
+[builds.bepinex.dev](https://builds.bepinex.dev/projects/bepinex_be). Get the
+**Unity.IL2CPP win-x64** variant; the Mono one will not load.
+
+Then, before you put the headset on, open `BepInEx/config/BepInEx.cfg` and set:
+
+```ini
+[Logging.Console]
+Enabled = false
 ```
 
-`[x]` / `[ ]` are toggles. `< 2x >` cycles a multiplier through `1 → 1.25 → 1.5 → 2 → 3 → 5 → 10`
-and wraps.
+The console window steals focus mid-session and will wreck a run. Read `BepInEx/LogOutput.txt`
+instead.
 
-### How each cheat is implemented
+Press **F1** in game to open the dev menu, then pick Trainer.
 
-Most value cheats route through a single hook: **`Fighter.CalcSkillAndStatusEffectValue`**, the
-game's central stat query. Every stat the skill/status system can touch passes through it keyed by
-`SkillCalcType`, so one postfix covers movement, jump, weakspot range and visibility at once.
+### If nothing happens
 
-| Cheat | Mechanism |
+If no `BepInEx/LogOutput.txt` or `BepInEx/interop` appears after launching, Doorstop never
+injected. Run the included doctor with the game closed:
+
+```powershell
+.\bepinex-doctor.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\IRONSTRIKE"
+```
+
+It checks the usual culprits: wrong BepInEx variant, zip extracted one folder too deep, missing
+`winhttp.dll`, antivirus eating Doorstop, and Mark-of-the-Web blocking the DLL.
+
+## The menu
+
+```
+Trainer
+├── Survival      God Mode · Invisible · Fast Regen · Revive Me
+├── Offense       Insta-Kill · High Damage · Low Cooldowns
+│                 All Ironstrikes · Ironstrike Rate
+├── Movement      Move Speed · Jump Height
+├── Weapons       Melee Reach · Projectile Speed · Projectile Range
+├── Team Kill     Enemies hurt each other · Player side hurts each other
+├── Visual        Hide healthbars / damage numbers / status effects
+├── Bots          Hurt All · Despawn All · Spawn Dummy
+├── Give Skill...        every skill for your class, at max level
+├── Give Weapon Set...   Legendary / Rare / Common, filtered to your class
+└── Reset All
+```
+
+`[x]` and `[ ]` are toggles. Values show as `< 2x >` and cycle
+`1 → 1.25 → 1.5 → 2 → 3 → 5 → 10` each time you select them, since a menu entry only carries one
+action.
+
+F2 re-applies the config, F3 revives you, F4 and F5 hurt and despawn all bots. Hotkeys use legacy
+`UnityEngine.Input`; if this build turns out to be Input-System-only the plugin logs a line and
+turns them off, and everything stays reachable from the menu.
+
+## How it works
+
+The game's god-object is a MonoBehaviour called `GM`. Its eight `Cheat*` flags are `public static`
+fields and the dev menu builders are public methods, so a lot of this mod is just calling code that
+already exists.
+
+Most of the value cheats go through one hook. `Fighter.CalcSkillAndStatusEffectValue` is the central
+stat query — everything the skill and status system can modify passes through it keyed by
+`SkillCalcType` — so a single postfix covers movement, jump, weakspot range and visibility.
+
+| Cheat | How |
 | --- | --- |
-| God Mode | pins `Fighter.invulnerable` each frame (game clears it on respawn) |
-| Insta-Kill | `Fighter.CalculateDamage` postfix, **only** when `hitInfo.attackingFighter` is you |
-| Invisible | `CalcSkillAndStatusEffectFlag(Targetable)` → `false`, plus `VisibilityPercent` → 0 — the same lever Smoke Bombs and the Invisibility spell pull |
-| Move Speed / Jump | `SkillCalcType.MoveSpeed` / `JumpVelocity` / `JumpHorizontal` |
-| Ironstrike Rate | `SkillCalcType.WeakspotRange` **and** `Weapon.WeakspotBaseInterval` (the dev's own cadence field — smaller interval = weakspots appear more often) |
-| Melee Reach | scales the equipped weapon's `transform.localScale`; reach is collider geometry in this game, not a float, so a bigger weapon genuinely reaches further |
-| Projectile Speed / Range | `Projectile.SetTypes` postfix → `speed`, `maxLifeTime`, `gravity`, owner-checked |
-| Team Kill | `GM.isSameTeam` postfix, per faction pair — `EnemyBots` vs `EnemyBots` and `LocalPlayer`/`Allies` vs each other, toggled separately |
-| Give Skill | `SkillManager.GiveSkillToFighter(type, fighter, level)`, filtered by `Fighter.fighterClass` |
-| Give Weapon Set | `GM.GivePlayerWeaponSet(set)` over `ArmoryManager.weaponSetDatabase`, filtered by class and grouped by `Tier` |
-| The eight `Cheat*` flags | set directly on `GM` — they are `public static` |
+| God Mode | pins `Fighter.invulnerable`, which the game clears on respawn |
+| Insta-Kill | `Fighter.CalculateDamage`, only when `hitInfo.attackingFighter` is you |
+| Invisible | `CalcSkillAndStatusEffectFlag(Targetable)` returns false, the same lever Smoke Bombs and the Invisibility spell use |
+| Move Speed, Jump | `SkillCalcType.MoveSpeed`, `JumpVelocity`, `JumpHorizontal` |
+| Ironstrike Rate | `SkillCalcType.WeakspotRange` plus `Weapon.WeakspotBaseInterval`, the dev's own cadence field |
+| Melee Reach | scales the weapon's `transform.localScale`; reach here is collider geometry, not a float, so a longer weapon genuinely reaches further |
+| Projectiles | `Projectile.SetTypes` postfix adjusting `speed`, `maxLifeTime` and `gravity` |
+| Team Kill | `GM.isSameTeam` postfix, per faction pair, with `EnemyBots` and the player side as separate toggles |
+| Give Skill | `SkillManager.GiveSkillToFighter`, filtered by `Fighter.fighterClass` |
+| Give Weapon Set | `GM.GivePlayerWeaponSet` over `ArmoryManager.weaponSetDatabase`, grouped by tier |
 
-Two honest caveats:
-
-- **Multiplier semantics are unverified.** IL2CPP strips method bodies, so whether the game reads
-  these stats as multipliers or as additive bonus-percentages can't be read off the binary. The code
-  multiplies *and* floors the result at `(factor - 1)` so the knob bites either way. If a stat feels
-  far too strong or weak, adjust `Cheats.Steps`.
-- **Team Kill also retargets AI.** `isSameTeam` is the same predicate the AI consults for target
-  selection, so enemies will deliberately fight each other rather than only hurting each other by
-  accident. That is usually the more fun version; narrowing it to accidental-only would mean moving
-  the check down into the per-hit path.
-
-### Hotkeys
-
-Optional — they use legacy `UnityEngine.Input`, and the plugin detects and self-disables with a log
-line if this build is Input-System-only. Everything is reachable from the VR menu regardless.
-
-| Key | Action |
-| --- | --- |
-| `F1` | toggle the dev menu (with Trainer grafted on) |
-| `F2` | re-apply config |
-| `F3` | revive yourself |
-| `F4` / `F5` | hurt / despawn all bots |
+Two things to know. IL2CPP strips method bodies, so there is no way to tell from the binary whether
+the game reads those stats as multipliers or as additive bonus percentages; the code multiplies and
+also floors the result at `factor - 1` so the knob works either way. And Team Kill retargets the AI,
+because `isSameTeam` is what the AI uses to choose targets — enemies will actively fight each other
+rather than only clipping each other by accident.
 
 ## Scope
 
-The plugin **does not touch currency** — no Shards, Geodes, Essence, Animus or Gems, and it does
-not edit cosmetic prices. IRONSTRIKE is free-to-play with real-money Gem IAP from a solo developer,
-and the build persists `AnimusEverGainedSuspect` / `IsBanned` and fetches remote ban lists. The
-internals are wide open and clearly not defended; the monetisation is the thing that is. Flipping
-gameplay flags in solo play is in the spirit of what the dev left behind. Minting currency is not.
+No currency. Nothing here grants Shards, Geodes, Essence, Animus or Gems, and it does not touch
+cosmetic prices. IRONSTRIKE is free-to-play with real-money Gem IAP from a solo developer, and the
+build persists `AnimusEverGainedSuspect` and `IsBanned` and fetches remote ban lists. The internals
+are wide open and clearly not defended. The monetisation is the part that is.
 
-It also **gates itself to solo play** (`SoloOnly`, on by default). This is not caution theatre —
-the netcode genuinely cannot defend itself:
+Single-player only, enforced in code and on by default. The netcode is Fusion Host mode, so one
+player's client is authoritative for everyone, and it validates almost nothing: of roughly 45 RPCs
+only 7 are authority-gated, damage magnitude is a caller-supplied float, and player health rides in
+each client's own `NetworkInput`. The game cannot stop a modded client from affecting other people,
+so the check lives here. It is `NetworkLifecycle.SpawnedPlayerCount <= 1`, not `NetworkIsRunning()`,
+because solo play still starts a Host session.
 
-- Topology is Fusion **Host mode**, so one player's client is authoritative for everyone.
-- Of ~45 RPCs, only 7 are `StateAuthority`-gated. The rest are `RpcSources.All`, including
-  `RPC_GiveSkillToPlayer`, `RPC_HealPlayer`, `RPC_SetStatusValue`, `RPC_TallyFighter`, and all four
-  damage RPCs — where **damage magnitude is a caller-supplied float**.
-- `PlayerNetworkInput` carries `CurrentHealth`/`MaxHealth`, which the host copies into authoritative
-  networked state every tick, so player HP is effectively client-authoritative.
-- There is no damage/heal/skill validation, no bounds, no rate limiting. Moderation is a
-  plaintext-HTTP name ban list plus a cooperative vote-kick.
+## Building
 
-Since the game won't stop a modded client from affecting other people, the restraint lives here.
-The solo check is `NetworkLifecycle.SpawnedPlayerCount <= 1` — note `NetworkIsRunning()` is *not* a
-solo test, because solo play still starts a Fusion Host session.
+Needs the .NET SDK 6.0 or newer. Reference assemblies are committed in `refs/`, so a clean clone
+compiles with no game files present.
 
-## Building (Linux)
+Windows:
 
-Needs only `dotnet-sdk`. No Wine, no Windows, no running game.
+```powershell
+.\build.ps1
+.\build.ps1 -GameDir "C:\Program Files (x86)\Steam\steamapps\common\IRONSTRIKE"   # build + install
+.\build.ps1 -GameDir ... -Package                                                 # + make the zip
+```
+
+Linux or macOS:
 
 ```bash
-./regen-interop.sh          # Cpp2IL + Il2CppInterop -> ./interop  (compile references)
-./build.sh                  # -> IronstrikeTrainer/bin/Release/net6.0/IronstrikeTrainer.dll
-./build.sh /mnt/ironstrike  # build + deploy to an SMB-mounted game dir
+./build.sh                    # build
+./build.sh /mnt/ironstrike    # build + install over a mounted game dir
+./package.sh                  # make the distributable zip
 ```
 
-`regen-interop.sh` generates interop assemblies locally from `GameAssembly.dll` +
-`global-metadata.dat`, so the plugin can be written and compiled against real game types without
-ever launching the game. Re-run it after any game update.
+CI builds every push and attaches a zip to each `v*` tag.
 
-Prefer the game's own `BepInEx/interop` when it exists — `build.sh` picks it automatically if you
-pass the game dir, since those are what the runtime actually generated.
+If you own the game, `./regen-interop.sh` regenerates `refs/` from your own copy with Cpp2IL and
+Il2CppInterop, which is worth doing after a game update. Pass `-p:InteropDir=<path to
+BepInEx/interop>` to compile against the set the game generated at runtime instead.
 
-## Installing (Windows)
-
-The game runs on Windows; Linux is just the dev box.
-
-1. Download **BepInEx 6 IL2CPP win-x64** `6.0.0-be.788` from
-   <https://builds.bepinex.dev/projects/bepinex_be> and extract it into the game root, beside
-   `Ironstrike.exe`.
-2. Launch once. First run generates interop assemblies — **1–5 minutes, and the window may look
-   frozen. Do not kill it.** Launch twice if nothing appears.
-   Success looks like `BepInEx/interop/assembly-hash.txt` plus a populated `BepInEx/interop/`.
-3. **Before putting the headset on**, edit `BepInEx/config/BepInEx.cfg`:
-   ```ini
-   [Logging.Console]
-   Enabled = false
-   ```
-   A console window stealing focus mid-VR-session is the most likely way to wreck a run. Read
-   `BepInEx/LogOutput.txt` instead.
-4. Drop `IronstrikeTrainer.dll` into `BepInEx/plugins/`.
-5. Launch, then edit `BepInEx/config/IronstrikeTrainer.cfg` and relaunch (or press `F2`).
-
-### Verifying the hooks fired
-
-Under IL2CPP a Harmony patch on an inlined method applies with no error and then silently never
-runs, so the plugin logs explicit confirmation. Look for:
-
-```
-HOOK CONFIRMED: GM.InitScene postfix fired.
-HOOK CONFIRMED: GM.Update postfix fired.
-```
-
-If those never appear, the patches aren't live and nothing else matters yet. `GM.InitScene` and
-`GM.Update` are Unity message methods invoked from native code, so they should be safe targets.
-
-## Technical notes
-
-- Unity **2021.3.28f1**, IL2CPP, metadata **v29**, magic `0xFAB11BAF` — unencrypted and
-  unobfuscated, so stock tooling works with no unpacking.
-- The game's gameplay types live in the image named **`GameAssembly.dll`**, not
-  `Assembly-CSharp.dll` (which holds third-party code). `GM` is there.
-- No Addressables and no AssetBundles — content is classic serialized files loaded by build index.
-- `Ironstrike_Data/StreamingAssets/` has loose, runtime-parsed CSVs (`skillvalues.csv`,
-  `spellvalues.csv`, `CosmeticsData.csv`) and dialogue JSON. `SkillDatabase.fileHash` +
-  `GetHash(fileName)` + `forceRead` is cache invalidation, not tamper detection, so edits should
-  re-read. Untested as of v0.1.
-- Burst code (`lib_burst_generated.dll`) has no IL2CPP `MethodInfo` and cannot be Harmony-patched.
-
-## Shipping it
-
-**There is no need to invent a mods folder — BepInEx already defines one.** Plugins live in
-`BepInEx/plugins/`, the loader scans it at startup, and every tool in the ecosystem expects exactly
-that. Adding a custom loader or directory on top would buy nothing.
-
-`./package.sh` produces `dist/IronstrikeTrainer-<version>.zip`, laid out so one file serves both
-install paths:
-
-```
-manifest.json                         <- Thunderstore / r2modman / Gale read this
-icon.png                              <- 256x256, required by Thunderstore
-README.md
-BepInEx/plugins/IronstrikeTrainer.dll <- manual install: drag BepInEx/ onto the game folder
-```
-
-Distribution options, easiest first:
-
-1. **GitHub Release** — attach the zip. Works today, no gatekeeping. Users drop the DLL in
-   `BepInEx/plugins/`. This is the right first move.
-2. **Thunderstore** — the standard for BepInEx mods and what gives one-click installs via r2modman
-   and Gale. IRONSTRIKE has **no Thunderstore community yet**; you have to request one (via
-   Thunderstore's Discord / GitHub) before you can publish. The zip is already in their format, so
-   this is a paperwork step, not a code one.
-3. **Nexus Mods** — no IRONSTRIKE game page either; also a request.
-
-`manifest.json` declares a dependency on `BepInEx-BepInExPack_IL2CPP-6.0.755` so mod managers
-install the loader automatically. Note BepInEx 6 IL2CPP has **never had a stable release**, so pin
-a specific build rather than tracking latest.
-
-Before publishing anywhere, ask on the [official Discord](https://www.ironstrikegame.com/discord) —
-there is no published mod policy, and E McNeill is a solo dev.
+Technically: Unity 2021.3.28f1, IL2CPP metadata v29 unencrypted, so stock tooling works with no
+unpacking. The gameplay types live in the image named `GameAssembly.dll`, not `Assembly-CSharp.dll`.
+There are no Addressables or asset bundles. Burst code in `lib_burst_generated.dll` has no IL2CPP
+`MethodInfo` and cannot be patched with Harmony.
 
 ## License
 
-AGPL-3.0. Note this covers *this mod's* source only — IRONSTRIKE itself is proprietary and no game
-code or assets are redistributed here. The repo contains no decompiled output: interop assemblies
-are generated locally from your own installed copy by `regen-interop.sh` and are gitignored.
+AGPL-3.0, covering this mod's source.
+
+`refs/` holds machine-generated IL2CPP interop assemblies. They are API surface — type and member
+signatures with interop trampolines, no game logic — and are committed only so the project builds
+without a copy of the game. No game assets are redistributed. Regenerate them yourself from your own
+install with `regen-interop.sh` if you would rather not trust the committed ones.
 
 ## Credits
 
-IRONSTRIKE is by **E McNeill**. The dev menu, cheat flags, AI debug visualisers and in-game VR
-tuner editor in this mod are all *his* work, shipped in the retail build — this plugin only opens
-the door he left unlocked.
+IRONSTRIKE is by E McNeill. The dev menu, the cheat flags, the AI debug visualisers and the in-game
+tuner editor are all his, shipped in the retail build. This opens a door he left unlocked.
 
-There is no published mod policy. Worth asking on the
-[official Discord](https://www.ironstrikegame.com/discord) before distributing anything.
+There is no published mod policy, so it is worth asking on the
+[Discord](https://www.ironstrikegame.com/discord) before redistributing anything.

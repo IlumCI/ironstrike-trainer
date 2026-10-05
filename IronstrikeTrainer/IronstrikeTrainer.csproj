@@ -17,14 +17,11 @@
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.1.0" />
   </ItemGroup>
 
-  <!--
-    InteropDir points at BepInEx/interop. Default is the locally generated set
-    (Cpp2IL + Il2CppInterop.CLI against the same game build). Override with
-    -p:InteropDir=/mnt/ironstrike/BepInEx/interop to build against the real
-    runtime-generated assemblies from the Windows install.
-  -->
+  <!-- Reference assemblies. refs/ is committed so CI and a clean clone can build with no
+       game files present. Override with -p:InteropDir=<path to BepInEx/interop> to build
+       against the set the game actually generated at runtime. -->
   <PropertyGroup Condition="'$(InteropDir)' == ''">
-    <InteropDir>$(LocalInteropDir)</InteropDir>
+    <InteropDir>$(MSBuildThisFileDirectory)../refs</InteropDir>
   </PropertyGroup>
 
   <ItemGroup>

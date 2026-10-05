@@ -3,5 +3,6 @@ obj/
 *.user
 dump/
 .interop-build/
-interop/
 dist/
+interop/
+!refs/
