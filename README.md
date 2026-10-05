@@ -1,5 +1,16 @@
 # Ironstrike Trainer
 
+> ## ⚠️ Do not use v0.1.0 / v0.1.1
+>
+> Enabling the dev menu trips an anti-tamper check in the game. It prints a message and
+> **force-fails your current run.** `GM.CreateDevMenu()` returns null and the run ends.
+>
+> Nothing is uploaded and no account flag is set — `IsBanned` and `AnimusEverGainedSuspect`
+> stay clear, and the binary has no POST path — but the mod does not work and will ruin runs.
+>
+> Both releases are left up for reference only. See the README.
+
+
 A cheat menu for [IRONSTRIKE](https://store.steampowered.com/app/3233230/IRONSTRIKE/), built as a
 BepInEx 6 IL2CPP plugin.
 

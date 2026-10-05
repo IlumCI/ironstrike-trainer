@@ -31,6 +31,7 @@
     <Reference Include="$(InteropDir)/UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="$(InteropDir)/UnityEngine.InputLegacyModule.dll" Private="false" />
     <Reference Include="$(InteropDir)/Unity.InputSystem.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Unity.TextMeshPro.dll" Private="false" />
     <Reference Include="$(InteropDir)/Il2Cppmscorlib.dll" Private="false" />
   </ItemGroup>
 

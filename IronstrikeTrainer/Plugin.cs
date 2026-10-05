@@ -49,6 +49,7 @@ internal sealed class Cfg
     public readonly ConfigEntry<bool> AllIronstrikes, DontSpawnIronstrikes;
     public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
     public readonly ConfigEntry<bool> UnlockDevMenu, EnableHotkeys;
+    public readonly ConfigEntry<float> AutoOpenAfter;
 
     public Cfg(ConfigFile f)
     {
@@ -68,6 +69,9 @@ internal sealed class Cfg
             "Typo is the dev's; kept to match the field.");
 
         UnlockDevMenu = f.Bind("04 DevMenu", "UnlockDevMenu", true);
+        AutoOpenAfter = f.Bind("04 DevMenu", "AutoOpenAfterSeconds", 0f,
+            "Debug aid: open the menu automatically this many seconds after a scene loads,\n"
+            + "and log where it sits in the hierarchy. 0 disables.");
         EnableHotkeys = f.Bind("04 DevMenu", "EnableHotkeys", true,
             "Legacy Input only. Self-disables if this build is Input System only.");
     }

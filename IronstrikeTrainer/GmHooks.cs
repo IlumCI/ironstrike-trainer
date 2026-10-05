@@ -11,7 +11,8 @@ namespace IronstrikeTrainer;
 [HarmonyPatch]
 internal static class GmHooks
 {
-    static bool sawInit, sawUpdate, menuGrafted, loggedApply;
+    static bool sawInit, sawUpdate, menuGrafted, loggedApply, autoOpened, loggedWhere;
+    static float firstUpdateAt = -1f;
 
     // Legacy UnityEngine.Input throws in this build (Input System only), so hotkeys go through
     // Unity.InputSystem. Probed once, then cached.
@@ -39,11 +40,47 @@ internal static class GmHooks
         // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
         Cheats.Patches.PinGodMode();
         EnsureFlags();
+        MaybeAutoOpen();
         if (Plugin.C.EnableHotkeys.Value && mode != InputMode.None) Hotkeys();
     }
 
     // NetworkIsRunning() is not a solo test: solo play still starts a Fusion Host session, since
     // GM.LoadAsyncSceneByIndex passes GameMode.Host. Player count is the real check.
+    static void MaybeAutoOpen()
+    {
+        float after = Plugin.C.AutoOpenAfter.Value;
+        if (after <= 0f || autoOpened) return;
+
+        float now = UnityEngine.Time.realtimeSinceStartup;
+        if (firstUpdateAt < 0f) firstUpdateAt = now;
+        if (now - firstUpdateAt < after) return;
+
+        autoOpened = true;
+        Plugin.Log.LogInfo($"auto-opening dev menu after {after}s");
+        ToggleDevMenu();
+    }
+
+    // Report where the menu actually lives, because field names alone do not tell you whether it
+    // renders on a world-space canvas, on the HUD, or parented to a controller.
+    static void LogWhere(ILDevMenuManager dm)
+    {
+        if (loggedWhere) return;
+        loggedWhere = true;
+        try
+        {
+            var t = dm.transform;
+            var path = t.name;
+            for (var p = t.parent; p != null; p = p.parent) path = p.name + "/" + path;
+
+            var go = dm.gameObject;
+            Plugin.Log.LogInfo($"dev menu object: {path}");
+            Plugin.Log.LogInfo($"  activeInHierarchy={go.activeInHierarchy} " +
+                               $"worldPos={t.position} lossyScale={t.lossyScale} enabled={dm.Enabled()}");
+
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"LogWhere failed: {e.Message}"); }
+    }
+
     internal static bool IsSolo()
     {
         try
@@ -188,6 +225,8 @@ internal static class GmHooks
         }
 
         dm.Toggle();
+        LogWhere(dm);
+        Plugin.Log.LogInfo($"dev menu enabled={dm.Enabled()} root={(dm.rootMenuItem != null ? dm.rootMenuItem.text : "<null>")}");
     }
 
     // MenuItem.children is a fixed-size Il2Cpp array, so appending means rebuilding it.
