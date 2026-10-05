@@ -39,10 +39,12 @@ internal static class GmHooks
             sawUpdate = true;
             Plugin.Log.LogInfo("HOOK CONFIRMED: GM.Update fired.");
             TamperWatch.Init(Plugin.C.WatchTamper.Value);
+            SafeMode.Announce();
         }
         if (!Plugin.C.Enabled.Value) return;
 
         // Keep this cheap. VR runs 72-120Hz and allocating here shows up as judder.
+        SafeMode.Enforce();
         Cheats.Patches.PinGodMode();
         EnsureFlags();
         TamperWatch.Tick();

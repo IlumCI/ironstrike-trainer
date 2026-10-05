@@ -35,6 +35,8 @@
     <Reference Include="$(InteropDir)/UnityEngine.UIModule.dll" Private="false" />
     <Reference Include="$(InteropDir)/UnityEngine.UI.dll" Private="false" />
     <Reference Include="$(InteropDir)/Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Fusion.Runtime.dll" Private="false" />
+    <Reference Include="$(InteropDir)/Fusion.Common.dll" Private="false" />
   </ItemGroup>
 
   <Target Name="CheckInterop" BeforeTargets="BeforeBuild">

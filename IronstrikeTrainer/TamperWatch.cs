@@ -55,8 +55,28 @@ internal static class TamperWatch
 
         Plugin.Log.LogWarning(
             $"[tamper {why}] guard={flagged} banbu={banbu} dcd={dcd} " +
-            $"unbu={Show(unbu)} dnbu={Show(dnbu)} savedID={savedId}");
+            $"unbu={Redact(unbu)} dnbu={Redact(dnbu)} savedID={Redact(savedId)}");
     }
 
-    static string Show(string s) => s == null ? "<null>" : s.Length == 0 ? "<empty>" : $"\"{s}\"";
+    // dnbu holds the local Steam persona name and savedID looks like an account id. The log file is
+    // the first thing anyone attaches to a bug report, so these never go in verbatim. A short digest
+    // still lets us see that a value changed, which is all the diagnostic needs.
+    static string Redact(string v)
+    {
+        if (v == null) return "<null>";
+        if (v.Length == 0) return "<empty>";
+        return $"<len{v.Length}:{Digest(v)}>";
+    }
+
+    static string Redact(ulong v) => v == 0 ? "0" : $"<set:{Digest(v.ToString())}>";
+
+    static string Digest(string v)
+    {
+        unchecked
+        {
+            uint h = 2166136261u;
+            foreach (char c in v) { h ^= c; h *= 16777619u; }
+            return h.ToString("x8").Substring(0, 6);
+        }
+    }
 }

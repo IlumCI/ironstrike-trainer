@@ -29,6 +29,7 @@ public class Plugin : BasePlugin
         h.PatchAll(typeof(GmHooks));
         h.PatchAll(typeof(Cheats.Patches));
         h.PatchAll(typeof(OptionsProbe));
+        h.PatchAll(typeof(SafeMode));
 
         Log.LogInfo($"{Id.Name} v{Id.Version} loaded. Waiting on GM.InitScene / GM.Update.");
     }
@@ -45,7 +46,7 @@ public class Plugin : BasePlugin
 
 internal sealed class Cfg
 {
-    public readonly ConfigEntry<bool> Enabled, SoloOnly;
+    public readonly ConfigEntry<bool> Enabled, SoloOnly, SafeMode;
     public readonly ConfigEntry<bool> HighDamage, FastRegen, LowCooldowns;
     public readonly ConfigEntry<bool> AllIronstrikes, DontSpawnIronstrikes;
     public readonly ConfigEntry<bool> NoHealthbars, NoDamageNumbers, NoStatusEffects;
@@ -58,6 +59,10 @@ internal sealed class Cfg
         Enabled  = f.Bind("01 General", "Enabled", true, "Master switch.");
         SoloOnly = f.Bind("01 General", "SoloOnly", true,
             "Only act when alone in the session. Leave this on.");
+        SafeMode = f.Bind("01 General", "SafeMode", true,
+            "Block public matchmaking entirely and refuse incoming connections while modded.\n"
+            + "The developer asked that cheats never reach public games; this enforces it.\n"
+            + "Turn this off only if you are certain you are offline.");
 
         HighDamage           = f.Bind("02 Cheats", "CheatHighDamage", false);
         FastRegen            = f.Bind("02 Cheats", "CheatFastRegen", false);
