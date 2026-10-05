@@ -156,22 +156,31 @@ internal static class Cheats
             FirstHit("Projectile.SetTypes");
             if (p == null || !Plugin.Allowed() || !IsLocal(parent)) return;
 
+            // Homing projectiles are steered by the game each tick; rescaling speed or gravity
+            // under it makes the solver overshoot its target, so leave those alone and only
+            // extend how long they live.
+            bool homing = p.forceSeeking || p.percentSeeking > 0f || p.target != null;
+
+            if (!Off(ProjectileRange)) p.maxLifeTime *= ProjectileRange;
+
+            if (homing) return;
+
             if (!Off(ProjectileSpeed)) p.speed *= ProjectileSpeed;
-            if (!Off(ProjectileRange))
-            {
-                p.maxLifeTime *= ProjectileRange;   // range is bounded by flight time
-                p.gravity /= ProjectileRange;       // ...and by how fast the arc drops
-            }
+            if (!Off(ProjectileRange)) p.gravity /= ProjectileRange;
         }
 
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes), new[] { typeof(Fighter) })]
         static void Spawned(Projectile __instance, Fighter parent) => Tune(__instance, parent);
 
+        // Full signature, including spellType. Omitting a trailing parameter is fine for managed
+        // Harmony but not for an IL2CPP native detour: spell projectiles (fireball, seeking arrows)
+        // take this overload and the mismatch hard-crashed the game on spawn.
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Projectile), nameof(Projectile.SetTypes),
                       new[] { typeof(Fighter), typeof(SpellType) })]
-        static void SpawnedSpell(Projectile __instance, Fighter parent) => Tune(__instance, parent);
+        static void SpawnedSpell(Projectile __instance, Fighter parent, SpellType spellType)
+            => Tune(__instance, parent);
     }
 
     // Invisibility via the game's own StatusType.Invisibility. Re-applied on a rolling window so
@@ -179,14 +188,23 @@ internal static class Cheats
     // means we never have to remove it by hand.
     const float InvisWindow = 3f;
     static int invisRefreshAt;
+    static int invisFailures;
+    static float invisQuietUntil;
 
     static void UpdateInvisibility()
     {
+        if (UnityEngine.Time.realtimeSinceStartup < invisQuietUntil) return;
+
         try
         {
             var me = Local;
             var sm = StatusManager.instance;
             if (me == null || sm == null) return;
+
+            // Status effects are tick-scheduled, so there has to be a running simulation. Outside
+            // one, TimeHelper.CurrentTick has no runner to read and throws.
+            var nl = GM.instance?.NetLifecycle;
+            if (nl == null || !nl.NetworkIsRunning()) return;
 
             int now = TimeHelper.CurrentTick;
 
@@ -210,8 +228,14 @@ internal static class Cheats
         }
         catch (Exception e)
         {
-            Plugin.Log.LogWarning($"invisibility update failed: {e.Message}");
-            Invisible = false;
+            // Back off instead of retrying every frame. Clearing Invisible here is pointless:
+            // SyncFromConfig reinstates it from config on the very next frame.
+            invisFailures++;
+            invisQuietUntil = UnityEngine.Time.realtimeSinceStartup + 5f;
+            if (invisFailures <= 3)
+                Plugin.Log.LogWarning($"invisibility deferred ({e.GetType().Name}), retrying in 5s");
+            else if (invisFailures == 4)
+                Plugin.Log.LogWarning("invisibility still failing; suppressing further warnings");
         }
     }
 
