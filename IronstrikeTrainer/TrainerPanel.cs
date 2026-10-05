@@ -22,7 +22,8 @@ internal static class TrainerPanel
     static RectTransform content;
     static ScrollRect scroll;
     static TextMeshProUGUI panelTitle;
-    static GameObject rowSource, titleSource;
+    static GameObject rowSource, titleSource, stepperSource, actionSource;
+    static float colW;            // width of the left-hand control column
     static GameObject menuButton;
     static float nextTry;
 
@@ -82,6 +83,27 @@ internal static class TrainerPanel
         go.transform.localScale = canvas.lossyScale;
         go.SetActive(false);
 
+        // Template discovery must happen before StripBehaviour: it identifies cards by their
+        // OptionsItemUI component, and components queued for Destroy no longer report reliably.
+        var contentT = go.transform.Find("MenuBox/Scroll View/Viewport/Content");
+        if (contentT != null)
+        {
+            foreach (var t in contentT.GetComponentsInChildren<Transform>(true))
+            {
+                if (rowSource == null && t.name.EndsWith("Checkbox") && t.GetComponentInChildren<Button>(true) != null)
+                    rowSource = Detach(t.gameObject, go.transform);
+                // Structural tests rather than component lookups, which proved unreliable here.
+                else if (stepperSource == null && Child(t, "Minus") != null && Child(t, "Plus") != null)
+                {
+                    LogComponents(t);
+                    stepperSource = Detach(t.gameObject, go.transform);
+                }
+                else if (titleSource == null && t.name.EndsWith("Title") && t.parent != null
+                         && t.parent.name.EndsWith("Options") && t.GetComponent<TextMeshProUGUI>() != null)
+                    titleSource = Detach(t.gameObject, go.transform);
+            }
+        }
+
         StripBehaviour(go);
         foreach (var cg in go.GetComponentsInChildren<CanvasGroup>(true))
         {
@@ -91,7 +113,12 @@ internal static class TrainerPanel
         var box = go.transform.Find("MenuBox");
         panelTitle = box?.Find("Title")?.GetComponent<TextMeshProUGUI>();
         scroll = box?.Find("Scroll View")?.GetComponent<ScrollRect>();
-        box?.Find("FirstTimeStuff")?.gameObject.SetActive(false);
+        var firstTime = box?.Find("FirstTimeStuff");
+        if (firstTime != null)
+        {
+            actionSource = Detach(firstTime.gameObject, go.transform);
+            firstTime.gameObject.SetActive(false);
+        }
 
         var back = box?.Find("BackButton")?.GetComponent<Button>();
         if (back != null) Bind(back, () => panel.SetActive(false));
@@ -99,25 +126,52 @@ internal static class TrainerPanel
         content = box?.Find("Scroll View/Viewport/Content")?.GetComponent<RectTransform>();
         if (content == null) { Plugin.Log.LogWarning("no scroll content in Options canvas"); return; }
 
-        // Keep one checkbox row and one title row as templates, then clear the page.
-        foreach (var t in content.GetComponentsInChildren<Transform>(true))
-        {
-            if (rowSource == null && t.name.EndsWith("Checkbox") && t.GetComponentInChildren<Button>(true) != null)
-                rowSource = Detach(t.gameObject, go.transform);
-            else if (titleSource == null && t.name.EndsWith("Title") && IsCard(t)
-                     && t.GetComponent<TextMeshProUGUI>() != null)
-                titleSource = Detach(t.gameObject, go.transform);
-        }
+        // Clear the page; templates were already set aside above.
         for (int i = content.childCount - 1; i >= 0; i--)
             UnityEngine.Object.Destroy(content.GetChild(i).gameObject);
 
         if (rowSource == null) { Plugin.Log.LogWarning("no checkbox row to template from"); return; }
 
         panel = go;
-        Plugin.Log.LogInfo($"templates: row='{rowSource.name}' header='{(titleSource != null ? titleSource.name : "<synthesised from row>")}'");
+        colW = ColumnWidth();
+        Plugin.Log.LogInfo($"templates: toggle='{rowSource.name}' stepper='{Name(stepperSource)}' " +
+                           $"action='{Name(actionSource)}' header='{Name(titleSource)}' column={colW:0}");
         Populate();
         Plugin.Log.LogMessage($"trainer panel built: {TrainerModel.Rows.Count} rows");
     }
+
+    static string Name(GameObject g) => g != null ? g.name : "<none>";
+
+    static void LogComponents(Transform t)
+    {
+        var names = new List<string>();
+        foreach (var c in t.GetComponents<Component>())
+            names.Add(c == null ? "<null>" : c.GetIl2CppType().Name);
+        Plugin.Log.LogInfo($"stepper card '{t.name}' components: {string.Join(", ", names)}");
+    }
+
+    // Direct child whose name ends with the suffix, e.g. MusicVolume -> MusicVolumeMinus.
+    static Transform Child(Transform t, string suffix)
+    {
+        for (int i = 0; i < t.childCount; i++)
+            if (t.GetChild(i).name.EndsWith(suffix)) return t.GetChild(i);
+        return null;
+    }
+
+    static float W(Transform t) => t != null ? t.GetComponent<RectTransform>().rect.width : 0f;
+
+    // Every control sits in one left-hand column sized to the widest control (the stepper), so the
+    // names of toggles, steppers and buttons all start at the same x.
+    static float ColumnWidth()
+    {
+        float box = W(rowSource.GetComponentInChildren<Button>(true)?.transform);
+        if (stepperSource == null) return box;
+        var t = stepperSource.transform;
+        return Mathf.Max(box, StepperWidth(t));
+    }
+
+    static float StepperWidth(Transform t) => W(Child(t, "Minus")) + ValueW + W(Child(t, "Plus")) + 2 * Inner;
+
 
     // Section headers like AudioTitle carry OptionsItemUI themselves; labels inside a card do not.
     // (Still present here: StripBehaviour's destroys are deferred to the end of the frame.)
@@ -157,7 +211,13 @@ internal static class TrainerPanel
                     group = row.Group;
                     y += Place(MakeTitle(group), y);
                 }
-                y += Place(MakeRow(row), y);
+                GameObject go = row.Kind switch
+                {
+                    TrainerModel.Kind.Stepper when stepperSource != null => MakeStepper(row),
+                    TrainerModel.Kind.Action when actionSource != null => MakeAction(row),
+                    _ => MakeRow(row),
+                };
+                y += Place(go, y);
             }
             catch (Exception e) { Plugin.Log.LogError($"row '{row.Label()}': {e.Message}"); }
         }
@@ -252,7 +312,6 @@ internal static class TrainerPanel
         Bind(rowButton, click);
 
         LayoutLeft(label, box);
-        if (row.Kind != TrainerModel.Kind.Toggle && box != null) box.gameObject.SetActive(false);
 
         relabel.Add(() =>
         {
@@ -264,28 +323,124 @@ internal static class TrainerPanel
 
     // Checkbox hard against the left edge, name straight after it, scrollbar alone on the right.
     // Rows without a checkbox (multipliers, actions) keep the same text indent so the names line up.
-    const float Pad = 40f, Gap = 30f;
+    const float Pad = 40f, Gap = 30f, Inner = 10f, ValueW = 140f;
 
-    static void LayoutLeft(TextMeshProUGUI label, Button box)
+    static void AtLeft(Transform t, float x)
     {
-        float boxW = 0f;
-        if (box != null)
-        {
-            var b = box.GetComponent<RectTransform>();
-            boxW = b.rect.width;
-            b.anchorMin = b.anchorMax = new Vector2(0f, 0.5f);
-            b.pivot = new Vector2(0f, 0.5f);
-            b.anchoredPosition = new Vector2(Pad, 0f);
-        }
+        var r = t.GetComponent<RectTransform>();
+        r.anchorMin = r.anchorMax = new Vector2(0f, 0.5f);
+        r.pivot = new Vector2(0f, 0.5f);
+        r.anchoredPosition = new Vector2(x, 0f);
+    }
 
+    // One line, always. Long names shrink to fit instead of wrapping into the row above.
+    static void Fit(TextMeshProUGUI t)
+    {
+        if (t == null) return;
+        float size = t.fontSize;
+        t.enableWordWrapping = false;
+        t.enableAutoSizing = true;
+        t.fontSizeMax = size;
+        t.fontSizeMin = size * 0.55f;
+        t.overflowMode = TextOverflowModes.Ellipsis;
+    }
+
+    static void NameAfterColumn(TextMeshProUGUI label)
+    {
         if (label == null) return;
         var l = label.GetComponent<RectTransform>();
         l.anchorMin = new Vector2(0f, 0f);
         l.anchorMax = new Vector2(1f, 1f);
         l.pivot = new Vector2(0f, 0.5f);
-        l.offsetMin = new Vector2(Pad + boxW + Gap, 0f);
+        l.offsetMin = new Vector2(Pad + colW + Gap, 0f);
         l.offsetMax = new Vector2(-Pad, 0f);
         label.alignment = TextAlignmentOptions.MidlineLeft;
+        Fit(label);
+    }
+
+    static void LayoutLeft(TextMeshProUGUI label, Button box)
+    {
+        if (box != null) AtLeft(box.transform, Pad + colW - W(box.transform));
+        NameAfterColumn(label);
+    }
+
+    // [-] value [+] in the column, name after it. Cloned from Music Volume, the game's own control
+    // for an adjustable value, so it reads as one.
+    static GameObject MakeStepper(TrainerModel.Row row)
+    {
+        var go = UnityEngine.Object.Instantiate(stepperSource);
+        go.name = "TrainerStepper";
+        StripBehaviour(go);
+        var t = go.transform;
+
+        Child(t, "Description")?.gameObject.SetActive(false);
+        var label = Child(t, "Title")?.GetComponent<TextMeshProUGUI>();
+        var minus = Child(t, "Minus");
+        var value = Child(t, "Text");
+        var plus  = Child(t, "Plus");
+
+        if (value != null)
+        {
+            var vr = value.GetComponent<RectTransform>();
+            vr.sizeDelta = new Vector2(ValueW, vr.sizeDelta.y);
+        }
+        float x = Pad + colW - StepperWidth(t);
+        if (minus != null) { AtLeft(minus, x); x += W(minus) + Inner; }
+        if (value != null) { AtLeft(value, x); x += ValueW + Inner; }
+        if (plus  != null) AtLeft(plus, x);
+        NameAfterColumn(label);
+
+        var valueText = value?.GetComponent<TextMeshProUGUI>();
+        if (valueText != null) { valueText.alignment = TextAlignmentOptions.Center; Fit(valueText); }
+
+        Action refreshAll = () => { foreach (var r in relabel) r(); };
+        if (minus != null) Bind(minus.GetComponent<Button>(), () => { row.Decrease(); refreshAll(); });
+        if (plus  != null) Bind(plus.GetComponent<Button>(),  () => { row.Activate(); refreshAll(); });
+
+        relabel.Add(() =>
+        {
+            if (label != null) label.text = row.Label();
+            if (valueText != null) valueText.text = row.Value();
+        });
+        return go;
+    }
+
+    // A real button with the action written on it, so it cannot be mistaken for an unticked box.
+    static GameObject MakeAction(TrainerModel.Row row)
+    {
+        var go = new GameObject("TrainerActionRow");
+        go.AddComponent<RectTransform>();
+        go.layer = rowSource.layer;          // UI raycasters filter by layer; a new object defaults to 0
+
+        var btn = UnityEngine.Object.Instantiate(actionSource, go.transform);
+        btn.name = "TrainerAction";
+        StripBehaviour(btn);
+        btn.SetActive(true);
+
+        var r = btn.GetComponent<RectTransform>();
+        r.anchorMin = new Vector2(0f, 0.5f); r.anchorMax = new Vector2(0f, 0.5f);
+        r.pivot = new Vector2(0f, 0.5f);
+        float h = rowSource.GetComponent<RectTransform>().rect.height * 0.62f;
+        r.sizeDelta = new Vector2(colW + Gap + 360f, h);
+        r.anchoredPosition = new Vector2(Pad, 0f);
+
+        var tmps = btn.GetComponentsInChildren<TextMeshProUGUI>(true);
+        var label = tmps.Count > 0 ? tmps[0] : null;
+        for (int i = 1; i < tmps.Count; i++) tmps[i].gameObject.SetActive(false);
+        if (label != null)
+        {
+            var l = label.GetComponent<RectTransform>();
+            l.anchorMin = Vector2.zero; l.anchorMax = Vector2.one;
+            l.offsetMin = new Vector2(70f, 6f); l.offsetMax = new Vector2(-70f, -6f);   // clear the end caps
+            label.alignment = TextAlignmentOptions.Center;
+            Fit(label);
+        }
+
+        Bind(btn.GetComponent<Button>(), () => { row.Activate(); foreach (var x in relabel) x(); });
+        relabel.Add(() => { if (label != null) label.text = row.Label().ToUpper(); });
+
+        go.GetComponent<RectTransform>().sizeDelta = new Vector2(0f, rowSource.GetComponent<RectTransform>().rect.height);
+        return go;
     }
 
     // Replace the event outright. RemoveAllListeners() leaves persistent (editor-wired) listeners in

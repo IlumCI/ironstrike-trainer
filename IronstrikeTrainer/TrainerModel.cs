@@ -8,23 +8,27 @@ namespace IronstrikeTrainer;
 // (cloned Settings cards, or a standalone panel) just walks them. Keeps the UI decision reversible.
 internal static class TrainerModel
 {
-    internal enum Kind { Toggle, Cycle, Action }
+    internal enum Kind { Toggle, Stepper, Action }
 
     internal sealed class Row
     {
         public Kind Kind;
         public string Group;
-        public Func<string> Label;      // full display text, state included
-        public Action Activate;         // what a click does
+        public Func<string> Label;      // the name
+        public Action Activate;         // click, or [+] on a stepper
+        public Action Decrease;         // [-] on a stepper
+        public Func<string> Value;      // stepper readout, e.g. "2x"
         public Func<bool> IsOn;         // Toggle only, for a checkbox visual
     }
 
-    static readonly float[] Steps = { 1f, 1.25f, 1.5f, 2f, 3f, 5f, 10f };
+    static readonly float[] Steps = { 0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 5f, 10f };
 
-    static float Next(float cur)
+    // Step to the neighbouring value, clamped at the ends. Values set by hand in the config that are
+    // not on the ladder snap to the nearest rung in the requested direction.
+    static float Step(float cur, int dir)
     {
-        for (int i = 0; i < Steps.Length; i++)
-            if (Math.Abs(Steps[i] - cur) < 0.001f) return Steps[(i + 1) % Steps.Length];
+        if (dir > 0) { foreach (var v in Steps) if (v > cur + 0.001f) return v; return Steps[^1]; }
+        for (int i = Steps.Length - 1; i >= 0; i--) if (Steps[i] < cur - 0.001f) return Steps[i];
         return Steps[0];
     }
 
@@ -37,9 +41,11 @@ internal static class TrainerModel
 
     static Row Cycle(string group, string name, ConfigEntry<float> e) => new Row
     {
-        Kind = Kind.Cycle, Group = group,
-        Label = () => $"{name}   {e.Value:0.##}x",
-        Activate = () => e.Value = Next(e.Value),
+        Kind = Kind.Stepper, Group = group,
+        Label = () => name,
+        Value = () => $"{e.Value:0.##}x",
+        Activate = () => e.Value = Step(e.Value, +1),
+        Decrease = () => e.Value = Step(e.Value, -1),
     };
 
     static Row Act(string group, string name, Action fn) => new Row
