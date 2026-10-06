@@ -11,7 +11,7 @@ internal static class Id
 {
     public const string Guid    = "eu.euroswarms.ironstrike.trainer";
     public const string Name    = "Ironstrike Trainer";
-    public const string Version = "1.0.2";
+    public const string Version = "1.0.3";
 }
 
 [BepInPlugin(Id.Guid, Id.Name, Id.Version)]
@@ -44,7 +44,7 @@ public class Plugin : BasePlugin
         if (GmHooks.IsSolo()) return true;
         // Private (code) matches are what the developer explicitly allows; public ones are locked
         // out by SafeMode, so the only multiplayer we can be in here is one we entered privately.
-        return C.AllowPrivateMatches.Value && SafeMode.InPrivateSession;
+        return C.AllowPrivateMatches.Value && (SafeMode.InPrivateSession || ServersBridge.InModdedSession());
     }
 }
 

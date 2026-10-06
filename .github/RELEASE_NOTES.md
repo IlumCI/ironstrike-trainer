@@ -2,7 +2,8 @@ A trainer for IRONSTRIKE that adds a **TRAINER** menu next to Options (or press 
 insta-kill, invisibility, movement and projectile multipliers, enemy friendly fire, and bot
 controls.
 
-Works in **Solo** and **Private Match** games only. While it is loaded, Play and HOST (public
+Works in **Solo** and **Private Match** games, and on modded servers from
+[Ironstrike Servers](https://github.com/IlumCI/ironstrike-servers) (1.0.3 and later). While it is loaded, Play and HOST (public
 matchmaking) are locked.
 
 ### Install

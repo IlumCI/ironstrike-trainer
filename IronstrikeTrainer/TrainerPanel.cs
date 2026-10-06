@@ -518,7 +518,9 @@ internal static class TrainerPanel
         LogMainMenuButtons(mm);
 
         Button options = Wired(mm, "PressOptions", false);
-        Button host = Wired(mm, "PressHost", true) ?? Wired(mm, "PressHost", false);
+        // IronstrikeServers rewires HOST to host a modded server, after which it is no longer wired
+        // to PressHost; fall back to the pill's own name.
+        Button host = Wired(mm, "PressHost", true) ?? Wired(mm, "PressHost", false) ?? Named(mm, "HostButton");
         if (options == null || host == null)
         {
             Plugin.Log.LogWarning("could not find the Options card or a HOST pill; F1 still opens the trainer");
@@ -561,6 +563,15 @@ internal static class TrainerPanel
             for (int i = 0; i < b.onClick.GetPersistentEventCount(); i++)
                 if (b.onClick.GetPersistentMethodName(i) == method) return b;
         }
+        return null;
+    }
+
+    static Button Named(MainMenuUI mm, string name)
+    {
+        foreach (var b in mm.GetComponentsInChildren<Button>(true))
+            if (b.name == name && b.gameObject.activeInHierarchy) return b;
+        foreach (var b in mm.GetComponentsInChildren<Button>(true))
+            if (b.name == name) return b;
         return null;
     }
 
